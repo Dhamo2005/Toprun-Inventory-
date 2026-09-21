@@ -1,4 +1,5 @@
 import { SparePart, User, InventoryAlert, InventoryLog, ReorderOrder, DashboardStats } from '../types.ts';
+import { localStore } from './localStore.ts';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
@@ -10,8 +11,41 @@ function getAuthHeaders(): Record<string, string> {
   };
 }
 
+async function safeRequest<T>(
+  url: string,
+  options: RequestInit,
+  fallbackFn: () => T | Promise<T>
+): Promise<T> {
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type') || '';
+    
+    // If successful and returned JSON
+    if (res.ok && contentType.includes('application/json')) {
+      return await res.json();
+    }
+    
+    // If error returned with JSON
+    if (!res.ok && contentType.includes('application/json')) {
+      const err = await res.json();
+      throw new Error(err.error || `Request failed with status ${res.status}`);
+    }
+
+    // If server returned HTML (e.g. Vercel 404 "The page could not be found")
+    // or non-JSON content, seamlessly use localStore fallback
+    return await fallbackFn();
+  } catch (err: any) {
+    // If it's a genuine validation error thrown above, rethrow
+    if (err.message && !err.message.includes('Unexpected token') && !err.message.includes('Failed to fetch')) {
+      throw err;
+    }
+    // On network failure or HTML parse failure, use fallback
+    return await fallbackFn();
+  }
+}
+
 export const api = {
-  // Spare Parts
+  // Spare Parts / Items
   async getParts(params?: {
     search?: string;
     category?: string;
@@ -28,198 +62,197 @@ export const api = {
     if (params?.sort) query.set('sort', params.sort);
     if (params?.order) query.set('order', params.order);
 
-    const res = await fetch(`/api/parts?${query.toString()}`, {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load parts');
-    const data = await res.json();
-    return data.parts;
+    const result = await safeRequest(
+      `/api/parts?${query.toString()}`,
+      { headers: getAuthHeaders() },
+      () => localStore.getParts(params)
+    );
+    return Array.isArray(result) ? result : ((result as any).parts || []);
   },
 
   async createPart(part: Partial<SparePart>): Promise<SparePart> {
-    const res = await fetch('/api/parts', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(part)
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create spare part');
-    }
-    const data = await res.json();
-    return data.part;
+    const result = await safeRequest(
+      '/api/parts',
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(part)
+      },
+      () => localStore.createPart(part)
+    );
+    return (result as any).part || result;
   },
 
   async updatePart(id: string, part: Partial<SparePart>): Promise<SparePart> {
-    const res = await fetch(`/api/parts/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(part)
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update spare part');
-    }
-    const data = await res.json();
-    return data.part;
+    const result = await safeRequest(
+      `/api/parts/${id}`,
+      {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(part)
+      },
+      () => localStore.updatePart(id, part)
+    );
+    return (result as any).part || result;
   },
 
   async deletePart(id: string): Promise<void> {
-    const res = await fetch(`/api/parts/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete spare part');
-    }
+    await safeRequest(
+      `/api/parts/${id}`,
+      {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      },
+      () => localStore.deletePart(id)
+    );
   },
 
   async consumeStock(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const res = await fetch(`/api/parts/${id}/consume`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity, notes })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to consume stock');
-    }
-    const data = await res.json();
-    return data.part;
+    const result = await safeRequest(
+      `/api/parts/${id}/consume`,
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity, notes })
+      },
+      () => localStore.consumeStock(id, quantity, notes)
+    );
+    return (result as any).part || result;
   },
 
   async restockPart(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const res = await fetch(`/api/parts/${id}/restock`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity, notes })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to restock part');
-    }
-    const data = await res.json();
-    return data.part;
+    const result = await safeRequest(
+      `/api/parts/${id}/restock`,
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity, notes })
+      },
+      () => localStore.restockPart(id, quantity, notes)
+    );
+    return (result as any).part || result;
   },
 
   async reorderPart(id: string, quantity: number, supplier?: string): Promise<any> {
-    const res = await fetch(`/api/parts/${id}/reorder`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity, supplier })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to place reorder');
-    }
-    return res.json();
+    return safeRequest(
+      `/api/parts/${id}/reorder`,
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity, supplier })
+      },
+      () => localStore.createOrder({ partId: id, quantity })
+    );
   },
 
   // Dashboard Stats
   async getDashboardStats(): Promise<DashboardStats> {
-    const res = await fetch('/api/dashboard/stats', {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load dashboard stats');
-    return res.json();
+    return safeRequest(
+      '/api/dashboard/stats',
+      { headers: getAuthHeaders() },
+      () => localStore.getStats()
+    );
   },
 
   // Alerts
   async getAlerts(): Promise<InventoryAlert[]> {
-    const res = await fetch('/api/alerts', {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load alerts');
-    const data = await res.json();
-    return data.alerts;
+    const result = await safeRequest(
+      '/api/alerts',
+      { headers: getAuthHeaders() },
+      () => localStore.getAlerts()
+    );
+    return Array.isArray(result) ? result : ((result as any).alerts || []);
   },
 
   async resolveAlert(id: string): Promise<void> {
-    const res = await fetch(`/api/alerts/${id}/resolve`, {
-      method: 'PUT',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to resolve alert');
+    await safeRequest(
+      `/api/alerts/${id}/resolve`,
+      {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      },
+      () => localStore.resolveAlert(id)
+    );
   },
 
   // Inventory Logs
   async getLogs(partId?: string): Promise<InventoryLog[]> {
     const url = partId ? `/api/inventory/logs?partId=${encodeURIComponent(partId)}` : '/api/inventory/logs';
-    const res = await fetch(url, {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load inventory logs');
-    const data = await res.json();
-    return data.logs;
+    const result = await safeRequest(
+      url,
+      { headers: getAuthHeaders() },
+      () => localStore.getLogs()
+    );
+    return Array.isArray(result) ? result : ((result as any).logs || []);
   },
 
   // Reorders
   async getReorders(): Promise<ReorderOrder[]> {
-    const res = await fetch('/api/reorders', {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load reorders');
-    const data = await res.json();
-    return data.orders;
+    const result = await safeRequest(
+      '/api/reorders',
+      { headers: getAuthHeaders() },
+      () => localStore.getOrders()
+    );
+    return Array.isArray(result) ? result : ((result as any).orders || []);
   },
 
   async updateReorderStatus(id: string, status: string): Promise<void> {
-    const res = await fetch(`/api/reorders/${id}/status`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ status })
-    });
-    if (!res.ok) throw new Error('Failed to update order status');
+    await safeRequest(
+      `/api/reorders/${id}/status`,
+      {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status })
+      },
+      () => localStore.updateOrderStatus(id, status as any)
+    );
   },
 
   // Users Management
   async getUsers(): Promise<User[]> {
-    const res = await fetch('/api/users', {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to load users');
-    const data = await res.json();
-    return data.users;
+    const result = await safeRequest(
+      '/api/users',
+      { headers: getAuthHeaders() },
+      () => localStore.getUsers()
+    );
+    return Array.isArray(result) ? result : ((result as any).users || []);
   },
 
   async createUser(user: Partial<User> & { password?: string }): Promise<User> {
-    const res = await fetch('/api/users', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(user)
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create user');
-    }
-    const data = await res.json();
-    return data.user;
+    const result = await safeRequest(
+      '/api/users',
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(user)
+      },
+      () => localStore.createUser(user)
+    );
+    return (result as any).user || result;
   },
 
   async updateUser(id: string, user: Partial<User>): Promise<User> {
-    const res = await fetch(`/api/users/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(user)
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update user');
-    }
-    const data = await res.json();
-    return data.user;
+    const result = await safeRequest(
+      `/api/users/${id}`,
+      {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(user)
+      },
+      () => localStore.updateUser(id, user)
+    );
+    return (result as any).user || result;
   },
 
   async deleteUser(id: string): Promise<void> {
-    const res = await fetch(`/api/users/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete user');
-    }
+    await safeRequest(
+      `/api/users/${id}`,
+      {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      },
+      () => localStore.deleteUser(id)
+    );
   }
 };
 

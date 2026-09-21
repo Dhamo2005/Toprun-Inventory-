@@ -11,7 +11,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('robopart-theme') as Theme;
+    const saved = (localStorage.getItem('toprun-theme') || localStorage.getItem('robopart-theme')) as Theme;
     if (saved === 'light' || saved === 'dark') return saved;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
@@ -23,6 +23,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } else {
       root.classList.remove('dark');
     }
+    localStorage.setItem('toprun-theme', theme);
     localStorage.setItem('robopart-theme', theme);
   }, [theme]);
 

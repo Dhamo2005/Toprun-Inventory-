@@ -16,3 +16,11 @@
 .dark select {
   color-scheme: dark;
 }
+
+/* Guard against white background on focused input / textarea in dark mode */
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}

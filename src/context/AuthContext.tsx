@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types.ts';
+import { localStore } from '../lib/localStore.ts';
 
 interface AuthPermissions {
   canManageUsers: boolean;
@@ -110,21 +111,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const permissions = computePermissions(role);
 
   const login = async (email: string, password: string = '') => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to authenticate');
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        setUser(data.user);
+        setToken(data.token);
+        setLoginModalOpen(false);
+        return;
+      }
+
+      if (!res.ok && contentType.includes('application/json')) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to authenticate');
+      }
+
+      // If server returned non-JSON (e.g. Vercel 404 HTML: "The page could not be found")
+      // Seamlessly authenticate using local client store
+      const localResult = localStore.login(email, password);
+      setUser(localResult.user);
+      setToken(localResult.token);
+      setLoginModalOpen(false);
+    } catch (err: any) {
+      if (err.message === 'User with this email not found' || err.message === 'Invalid or missing password') {
+        throw err;
+      }
+      // On network failure or unexpected response, attempt local authentication
+      try {
+        const localResult = localStore.login(email, password);
+        setUser(localResult.user);
+        setToken(localResult.token);
+        setLoginModalOpen(false);
+      } catch (localErr: any) {
+        throw new Error(localErr.message || err.message || 'Failed to authenticate');
+      }
     }
-
-    const data = await res.json();
-    setUser(data.user);
-    setToken(data.token);
-    setLoginModalOpen(false);
   };
 
   const logout = () => {

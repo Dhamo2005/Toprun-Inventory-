@@ -67,7 +67,7 @@ export const ConsumeStockModal: React.FC<ConsumeStockModalProps> = ({
               <MinusCircle className="h-4 w-4" />
             </div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              Log Part Usage
+              Log Item Usage
             </h3>
           </div>
           <button
@@ -78,7 +78,7 @@ export const ConsumeStockModal: React.FC<ConsumeStockModalProps> = ({
           </button>
         </div>
 
-        {/* Selected Part Summary Banner */}
+        {/* Selected Item Summary Banner */}
         <div className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
           <img
             src={part.imageUrl}
@@ -121,10 +121,10 @@ export const ConsumeStockModal: React.FC<ConsumeStockModalProps> = ({
                 required
                 value={quantity}
                 onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="w-24 rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-center text-sm font-bold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                className="w-24 rounded-xl border border-slate-200 bg-white py-2 px-3 text-center text-sm font-bold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-slate-800"
               />
               <div className="flex gap-1.5">
-                {[1, 2, 4, 8].map((q) => (
+                {[4].map((q) => (
                   <button
                     key={q}
                     type="button"
@@ -147,7 +147,7 @@ export const ConsumeStockModal: React.FC<ConsumeStockModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. Routine repair on Robot Arm 3"
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-indigo-400 dark:focus:bg-slate-800"
             />
           </div>
 
