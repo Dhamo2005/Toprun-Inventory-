@@ -1,0 +1,6 @@
+{
+  "name": "Toprun - Inventory Management",
+  "description": "Toprun inventory and items management system with role-based access control, replenishment alerts, stock tracking, analytics, and reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
