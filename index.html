@@ -17,7 +17,7 @@
       (function() {
         try {
           var theme = localStorage.getItem('toprun-theme') || localStorage.getItem('robopart-theme');
-          var isDark = theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var isDark = theme === 'dark';
           if (isDark) {
             document.documentElement.classList.add('dark');
           } else {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SparePart } from '../../types.ts';
 import { 
   Trash2, 
@@ -30,16 +30,24 @@ export const DeletePartModal: React.FC<DeletePartModalProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string>('');
 
+  // Automatically reset deletion and error state whenever modal opens/closes or target part changes
+  useEffect(() => {
+    setIsDeleting(false);
+    setError('');
+  }, [isOpen, part?.id]);
+
   if (!isOpen || !part) return null;
 
   const handleDelete = async () => {
+    if (!part || isDeleting) return;
     setError('');
     setIsDeleting(true);
     try {
       await onConfirm(part.id);
+      setIsDeleting(false);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to delete item');
+      setError(err.message || 'Failed to delete item. Please check server logs.');
       setIsDeleting(false);
     }
   };
@@ -107,23 +115,18 @@ export const DeletePartModal: React.FC<DeletePartModalProps> = ({
           {/* Detailed Item Attributes */}
           <div className="mt-3.5 grid grid-cols-2 gap-2.5 text-xs border-t border-slate-200/70 pt-3 dark:border-slate-700/60">
             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-              <Bot className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">Robot: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.robotModel}</strong></span>
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+              <span className="truncate">Location: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.location || 'Unassigned'}</strong></span>
             </div>
 
             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
               <Package className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span>Current Stock: <strong className="text-slate-800 dark:text-slate-200 font-bold">{part.stockLeft} {part.unit || 'pcs'}</strong></span>
+              <span>Current Stock: <strong className="text-slate-800 dark:text-slate-200 font-bold">{part.stockLeft}</strong></span>
             </div>
 
             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
               <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span>Min Limit: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.minThreshold} {part.unit || 'pcs'}</strong></span>
-            </div>
-
-            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-              <History className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span>Total Used: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.consumed} {part.unit || 'pcs'}</strong></span>
+              <span>Min Limit: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.minThreshold}</strong></span>
             </div>
 
             <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
@@ -131,19 +134,9 @@ export const DeletePartModal: React.FC<DeletePartModalProps> = ({
               <span>Unit Price: <strong className="text-slate-800 dark:text-slate-200 font-semibold">₹{part.unitCost.toLocaleString('en-IN')}</strong></span>
             </div>
 
-            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 col-span-2">
               <Tag className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <span>Total Value: <strong className="text-slate-800 dark:text-slate-200 font-semibold">₹{totalValue.toLocaleString('en-IN')}</strong></span>
-            </div>
-
-            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-              <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">Location: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.location}</strong></span>
-            </div>
-
-            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-              <Truck className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">Supplier: <strong className="text-slate-800 dark:text-slate-200 font-semibold">{part.supplier}</strong></span>
             </div>
           </div>
         </div>

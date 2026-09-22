@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types.ts';
-import { localStore } from '../lib/localStore.ts';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 interface AuthPermissions {
   canManageUsers: boolean;
@@ -20,6 +21,8 @@ interface AuthContextType {
   permissions: AuthPermissions;
   login: (email: string, password?: string) => Promise<void>;
   logout: () => void;
+  updateUserProfile: (updates: { name: string; email: string; department?: string; avatar?: string }) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   isLoginModalOpen: boolean;
   setLoginModalOpen: (open: boolean) => void;
 }
@@ -111,52 +114,78 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const permissions = computePermissions(role);
 
   const login = async (email: string, password: string = '') => {
+    let res: Response;
+    const url = `${API_BASE}/api/auth/login`;
     try {
-      const res = await fetch('/api/auth/login', {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        setUser(data.user);
-        setToken(data.token);
-        setLoginModalOpen(false);
-        return;
-      }
-
-      if (!res.ok && contentType.includes('application/json')) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to authenticate');
-      }
-
-      // If server returned non-JSON (e.g. Vercel 404 HTML: "The page could not be found")
-      // Seamlessly authenticate using local client store
-      const localResult = localStore.login(email, password);
-      setUser(localResult.user);
-      setToken(localResult.token);
-      setLoginModalOpen(false);
     } catch (err: any) {
-      if (err.message === 'User with this email not found' || err.message === 'Invalid or missing password') {
-        throw err;
-      }
-      // On network failure or unexpected response, attempt local authentication
-      try {
-        const localResult = localStore.login(email, password);
-        setUser(localResult.user);
-        setToken(localResult.token);
-        setLoginModalOpen(false);
-      } catch (localErr: any) {
-        throw new Error(localErr.message || err.message || 'Failed to authenticate');
-      }
+      throw new Error(`Cannot reach server at ${url}. Please ensure the backend server is running.`);
     }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      setUser(data.user);
+      setToken(data.token);
+      setLoginModalOpen(false);
+      return;
+    }
+
+    if (!res.ok && contentType.includes('application/json')) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to authenticate');
+    }
+
+    const text = await res.text();
+    throw new Error(`Server returned status ${res.status}: ${text.slice(0, 100)}`);
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
+  };
+
+  const updateUserProfile = async (updates: { name: string; email: string; department?: string; avatar?: string }): Promise<User> => {
+    const url = `${API_BASE}/api/auth/profile`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update profile' }));
+      throw new Error(err.error || 'Failed to update profile');
+    }
+
+    const data = await res.json();
+    setUser(data.user);
+    localStorage.setItem('robopart_user', JSON.stringify(data.user));
+    return data.user;
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
+    const url = `${API_BASE}/api/auth/change-password`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to update password' }));
+      throw new Error(err.error || 'Failed to update password');
+    }
   };
 
   return (
@@ -169,6 +198,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions,
         login,
         logout,
+        updateUserProfile,
+        changePassword,
         isLoginModalOpen,
         setLoginModalOpen,
       }}

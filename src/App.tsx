@@ -18,6 +18,7 @@ import { AuditLogs } from './components/AuditLogs.tsx';
 import { UserManagement } from './components/UserManagement.tsx';
 import { ExportReportsView } from './components/ExportReportsView.tsx';
 import { StockDetailView } from './components/StockDetailView.tsx';
+import { ProfileView } from './components/ProfileView.tsx';
 
 import { ConsumeStockModal } from './components/modals/ConsumeStockModal.tsx';
 import { RestockModal } from './components/modals/RestockModal.tsx';
@@ -25,6 +26,7 @@ import { AddEditPartModal } from './components/modals/AddEditPartModal.tsx';
 import { PartDetailModal } from './components/modals/PartDetailModal.tsx';
 import { DeletePartModal } from './components/modals/DeletePartModal.tsx';
 import { LoginModal } from './components/modals/LoginModal.tsx';
+import { ProfileModal } from './components/modals/ProfileModal.tsx';
 import { ErpLoginScreen } from './components/ErpLoginScreen.tsx';
 
 import { api, exportToCSV, exportToExcel, exportToPDF } from './lib/apiClient.ts';
@@ -45,7 +47,7 @@ function MainAppContent() {
   const qc = useQueryClient();
 
   // Navigation & View State
-  const [activeTab, setActiveTab] = useState<ActiveTab>('catalog');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -151,6 +153,11 @@ function MainAppContent() {
     try {
       await api.deletePart(id);
       showToast('Item deleted successfully');
+      if (selectedStockPartId === id) {
+        setSelectedStockPartId(null);
+      }
+      setSelectedPartForDelete(null);
+      setSelectedPartForDetail(null);
       refreshAll();
     } catch (err: any) {
       showToast(err.message || 'Failed to delete part', 'error');
@@ -160,7 +167,7 @@ function MainAppContent() {
 
   const handlePlaceReorder = async (part: SparePart, quantity: number) => {
     try {
-      await api.reorderPart(part.id, quantity, part.supplier);
+      await api.reorderPart(part.id, quantity);
       showToast(`Purchase order requisition generated for ${quantity}x ${part.name}`);
       refreshAll();
     } catch (err: any) {
@@ -250,7 +257,7 @@ function MainAppContent() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         activeAlertsCount={alerts.filter(a => !a.isResolved).length}
-        needToOrderCount={parts.filter(p => p.needToOrder > 0).length}
+        needToOrderCount={parts.filter(p => p.stockLeft <= p.minThreshold).length}
       />
 
       {/* Main Content Area */}
@@ -261,6 +268,17 @@ function MainAppContent() {
           isSidebarOpen={isSidebarOpen}
           alerts={alerts}
           onOpenAlerts={() => setActiveTab('alerts')}
+          onSelectPartId={(id) => {
+            setSelectedStockPartId(id);
+            setActiveTab('stock-detail');
+          }}
+          onResolveAlert={handleResolveAlert}
+          onNavigateHome={() => {
+            setSelectedStockPartId(null);
+            setSelectedPartForDetail(null);
+            setActiveTab('dashboard');
+          }}
+          onOpenProfile={() => setActiveTab('profile')}
         />
 
         {/* View Router */}
@@ -282,7 +300,7 @@ function MainAppContent() {
                 }}
                 onOpenConsumeModal={(p: SparePart) => setSelectedPartForConsume(p)}
                 onOpenRestockModal={(p: SparePart) => setSelectedPartForRestock(p)}
-                onOpenReorderModal={(p: SparePart) => handlePlaceReorder(p, p.needToOrder || 5)}
+                onOpenReorderModal={(p: SparePart) => handlePlaceReorder(p, Math.max(1, p.minThreshold - p.stockLeft + 5))}
                 onDeletePart={(p: SparePart) => setSelectedPartForDelete(p)}
               />
             )}
@@ -295,7 +313,7 @@ function MainAppContent() {
                 onRefreshParts={refreshAll}
                 onOpenConsumeModal={(p) => setSelectedPartForConsume(p)}
                 onOpenRestockModal={(p) => setSelectedPartForRestock(p)}
-                onOpenReorderModal={(p) => handlePlaceReorder(p, p.needToOrder || 5)}
+                onOpenReorderModal={(p) => handlePlaceReorder(p, Math.max(1, p.minThreshold - p.stockLeft + 5))}
                 onDeletePart={(p: SparePart) => setSelectedPartForDelete(p)}
               />
             )}
@@ -310,7 +328,7 @@ function MainAppContent() {
                 onNavigateToReorders={() => setActiveTab('reorders')}
                 onNavigateToAlerts={() => setActiveTab('alerts')}
                 onResolveAlert={handleResolveAlert}
-                onReorderPart={(p) => handlePlaceReorder(p, p.needToOrder || 5)}
+                onReorderPart={(p) => handlePlaceReorder(p, Math.max(1, p.minThreshold - p.stockLeft + 5))}
               />
             )}
 
@@ -328,6 +346,10 @@ function MainAppContent() {
                 alerts={alerts}
                 onResolveAlert={handleResolveAlert}
                 onRefresh={refreshAll}
+                onSelectPartId={(id) => {
+                  setSelectedStockPartId(id);
+                  setActiveTab('stock-detail');
+                }}
               />
             )}
 
@@ -346,6 +368,10 @@ function MainAppContent() {
 
             {activeTab === 'exports' && (
               <ExportReportsView parts={parts} />
+            )}
+
+            {activeTab === 'profile' && (
+              <ProfileView onShowToast={showToast} />
             )}
           </div>
         </main>
@@ -382,7 +408,7 @@ function MainAppContent() {
         onClose={() => setSelectedPartForDetail(null)}
         onOpenConsume={(p) => setSelectedPartForConsume(p)}
         onOpenRestock={(p) => setSelectedPartForRestock(p)}
-        onOpenReorder={(p) => handlePlaceReorder(p, p.needToOrder || 5)}
+        onOpenReorder={(p) => handlePlaceReorder(p, Math.max(1, p.minThreshold - p.stockLeft + 5))}
         onNavigateToStockDetailPage={(partId) => {
           setSelectedStockPartId(partId);
           setActiveTab('stock-detail');

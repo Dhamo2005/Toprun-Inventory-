@@ -8,19 +8,23 @@ import {
   CheckCircle2, 
   CheckCheck, 
   Calendar,
-  Filter
+  Filter,
+  ArrowRight,
+  RefreshCw
 } from 'lucide-react';
 
 interface AlertsCenterProps {
   alerts: InventoryAlert[];
   onResolveAlert: (id: string) => Promise<void>;
   onRefresh: () => void;
+  onSelectPartId?: (partId: string) => void;
 }
 
 export const AlertsCenter: React.FC<AlertsCenterProps> = ({
   alerts,
   onResolveAlert,
   onRefresh,
+  onSelectPartId
 }) => {
   const { permissions } = useAuth();
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('active');
@@ -44,38 +48,49 @@ export const AlertsCenter: React.FC<AlertsCenterProps> = ({
           </p>
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+        {/* Filter Tabs & Refresh */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setFilter('active')}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-              filter === 'active'
-                ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
-                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-            }`}
+            onClick={onRefresh}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
+            title="Refresh alerts from database"
           >
-            Active ({alerts.filter(a => !a.isResolved).length})
+            <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+            <span>Sync with DB</span>
           </button>
-          <button
-            onClick={() => setFilter('resolved')}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-              filter === 'resolved'
-                ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
-                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-            }`}
-          >
-            Resolved ({alerts.filter(a => a.isResolved).length})
-          </button>
-          <button
-            onClick={() => setFilter('all')}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-              filter === 'all'
-                ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
-                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-            }`}
-          >
-            All Alerts ({alerts.length})
-          </button>
+
+          <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              onClick={() => setFilter('active')}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                filter === 'active'
+                  ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              Active ({alerts.filter(a => !a.isResolved).length})
+            </button>
+            <button
+              onClick={() => setFilter('resolved')}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                filter === 'resolved'
+                  ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              Resolved ({alerts.filter(a => a.isResolved).length})
+            </button>
+            <button
+              onClick={() => setFilter('all')}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                filter === 'all'
+                  ? 'bg-white text-indigo-600 shadow-xs dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              All Alerts ({alerts.length})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -151,18 +166,28 @@ export const AlertsCenter: React.FC<AlertsCenterProps> = ({
                 </div>
               </div>
 
-              {/* Action Button */}
-              {!alt.isResolved && permissions.canResolveAlerts && (
-                <div className="shrink-0 sm:ml-4">
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 shrink-0 sm:ml-4">
+                {onSelectPartId && alt.partId && (
+                  <button
+                    onClick={() => onSelectPartId(alt.partId)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-colors"
+                  >
+                    <span>Inspect Part</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+
+                {!alt.isResolved && permissions.canResolveAlerts && (
                   <button
                     onClick={() => onResolveAlert(alt.id)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     <span>Mark as Resolved</span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ))
         )}

@@ -10,35 +10,35 @@ export interface User {
   createdAt: string;
 }
 
-export type PartCategory =
-  | 'Actuators & Motors'
-  | 'Sensors & Vision'
-  | 'End Effectors & Grippers'
-  | 'Compute & Control Boards'
-  | 'Power & Battery Systems'
-  | 'Cables & Connectors'
-  | 'Pneumatics & Hydraulics'
-  | 'Structural & Mechanical';
+export interface Category {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface LocationItem {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export type PartCategory = string;
 
 export type PartStatus = 'in_stock' | 'low_stock' | 'critical' | 'reorder_placed';
 
 export interface SparePart {
   id: string;
-  partNumber: string;
-  name: string;
-  category: PartCategory;
-  robotModel: string;
-  description: string;
-  imageUrl: string;
-  stockLeft: number;
-  minThreshold: number;
-  consumed: number;
-  needToOrder: number;
-  unitCost: number;
-  unit?: string;
-  supplier: string;
-  leadTimeDays: number;
-  location: string;
+  partNumber: string; // Item number
+  name: string;       // Item Name
+  description: string;// item Description
+  categoryId: string;
+  category: string;   // Relational Category Name
+  locationId: string;
+  location: string;   // Relational Location Name
+  minThreshold: number; // minimum threshold
+  imageUrl: string;   // Image
+  unitCost: number;   // unit price
+  stockLeft: number;  // current stock in inventory
   status: PartStatus;
   lastUpdated: string;
 }
@@ -75,7 +75,7 @@ export interface ReorderOrder {
   partName: string;
   quantity: number;
   status: 'pending' | 'approved' | 'shipped' | 'received';
-  supplier: string;
+  supplier?: string;
   totalCost: number;
   orderedBy: string;
   createdAt: string;
@@ -89,7 +89,8 @@ export interface DashboardStats {
   criticalCount: number;
   totalInventoryValue: number;
   pendingOrdersCount: number;
-  categoryDistribution: { category: string; count: number; stock: number; consumed: number }[];
+  activeAlertsCount: number;
+  categoryDistribution: { category: string; count: number; stock: number; consumed?: number }[];
   statusDistribution: { status: string; count: number }[];
   monthlyConsumption: { month: string; units: number; cost: number }[];
 }
@@ -97,9 +98,9 @@ export interface DashboardStats {
 export interface FilterOptions {
   search: string;
   category: string;
-  robotModel: string;
+  location: string;
   status: string;
-  sortBy: 'stockLeft' | 'consumed' | 'needToOrder' | 'name' | 'unitCost';
+  sortBy: 'stockLeft' | 'name' | 'unitCost' | 'minThreshold' | 'lastUpdated';
   sortOrder: 'asc' | 'desc';
   onlyNeedOrder: boolean;
 }

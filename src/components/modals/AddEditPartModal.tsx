@@ -1,24 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { SparePart, PartCategory } from '../../types.ts';
-import { X, Check, Boxes, Image as ImageIcon } from 'lucide-react';
+import { SparePart, Category, LocationItem } from '../../types.ts';
+import { X, Check, Boxes } from 'lucide-react';
+import { ImageFileUpload } from '../ImageFileUpload.tsx';
+import { SearchableSelect } from '../SearchableSelect.tsx';
+import { api } from '../../lib/apiClient.ts';
 
 interface AddEditPartModalProps {
   part?: SparePart | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (partData: Partial<SparePart>) => Promise<void>;
+  onSave: (partData: Partial<SparePart> & { category?: string; location?: string }) => Promise<void>;
 }
-
-const CATEGORIES: PartCategory[] = [
-  'Actuators & Motors',
-  'Sensors & Vision',
-  'End Effectors & Grippers',
-  'Compute & Control Boards',
-  'Power & Battery Systems',
-  'Cables & Connectors',
-  'Pneumatics & Hydraulics',
-  'Structural & Mechanical'
-];
 
 export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
   part,
@@ -28,83 +20,119 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
 }) => {
   const [partNumber, setPartNumber] = useState('');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<PartCategory>('Actuators & Motors');
-  const [robotModel, setRobotModel] = useState('');
   const [description, setDescription] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [stockLeft, setStockLeft] = useState<number>(5);
+  const [categoryId, setCategoryId] = useState('');
+  const [categoryName, setCategoryName] = useState('');
+  const [locationId, setLocationId] = useState('');
+  const [locationName, setLocationName] = useState('');
   const [minThreshold, setMinThreshold] = useState<number>(5);
-  const [consumed, setConsumed] = useState<number>(0);
-  const [unitCost, setUnitCost] = useState<number>(450);
-  const [unit, setUnit] = useState<string>('pcs');
-  const [supplier, setSupplier] = useState('');
-  const [leadTimeDays, setLeadTimeDays] = useState<number>(7);
-  const [location, setLocation] = useState('');
+  const [unitCost, setUnitCost] = useState<number>(150);
+  const [stockLeft, setStockLeft] = useState<number>(5);
+  const [imageUrl, setImageUrl] = useState('');
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<LocationItem[]>([]);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Load relational categories and locations
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchRelations = async () => {
+      try {
+        const [cats, locs] = await Promise.all([
+          api.getCategories(),
+          api.getLocations()
+        ]);
+        setCategories(cats);
+        setLocations(locs);
+      } catch (err) {
+        console.error('Failed to load categories/locations:', err);
+      }
+    };
+    fetchRelations();
+  }, [isOpen]);
 
   useEffect(() => {
     if (part) {
       setPartNumber(part.partNumber);
       setName(part.name);
-      setCategory(part.category);
-      setRobotModel(part.robotModel);
       setDescription(part.description || '');
-      setImageUrl(part.imageUrl || '');
-      setStockLeft(part.stockLeft);
+      setCategoryId(part.categoryId || '');
+      setCategoryName(part.category || '');
+      setLocationId(part.locationId || '');
+      setLocationName(part.location || '');
       setMinThreshold(part.minThreshold);
-      setConsumed(part.consumed);
       setUnitCost(part.unitCost);
-      setUnit(part.unit || 'pcs');
-      setSupplier(part.supplier);
-      setLeadTimeDays(part.leadTimeDays);
-      setLocation(part.location);
+      setStockLeft(part.stockLeft);
+      setImageUrl(part.imageUrl || '');
     } else {
       setPartNumber(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
       setName('');
-      setCategory('Actuators & Motors');
-      setRobotModel('Universal UR10e');
       setDescription('');
-      setImageUrl('https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=500&auto=format&fit=crop&q=80');
-      setStockLeft(6);
-      setMinThreshold(4);
-      setConsumed(0);
-      setUnitCost(750);
-      setUnit('pcs');
-      setSupplier('Robotics Precision Supply');
-      setLeadTimeDays(10);
-      setLocation('Bay A, Rack 1-B');
+      setCategoryId('');
+      setCategoryName('');
+      setLocationId('');
+      setLocationName('');
+      setMinThreshold(5);
+      setUnitCost(150);
+      setStockLeft(5);
+      setImageUrl('');
     }
   }, [part, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleCreateCategory = async (catName: string) => {
+    try {
+      const created = await api.createCategory(catName);
+      setCategories(prev => [...prev.filter(c => c.id !== created.id), created]);
+      return created;
+    } catch (err: any) {
+      setError(err.message || 'Failed to create category');
+      return null;
+    }
+  };
+
+  const handleCreateLocation = async (locName: string) => {
+    try {
+      const created = await api.createLocation(locName);
+      setLocations(prev => [...prev.filter(l => l.id !== created.id), created]);
+      return created;
+    } catch (err: any) {
+      setError(err.message || 'Failed to create location');
+      return null;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!partNumber || !name || !robotModel) {
-      setError('Part number, name, and robot model are required.');
+    if (!partNumber.trim() || !name.trim()) {
+      setError('Item number and Item Name are required.');
+      return;
+    }
+
+    if (!locationName.trim()) {
+      setError('Location is required. Please select or add a location.');
       return;
     }
 
     setIsSubmitting(true);
     try {
       await onSave({
-        partNumber,
-        name,
-        category,
-        robotModel,
-        description,
-        imageUrl: imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=500&auto=format&fit=crop&q=80',
-        stockLeft: Number(stockLeft),
-        minThreshold: Number(minThreshold),
-        consumed: Number(consumed),
-        unitCost: Number(unitCost),
-        unit: unit || 'pcs',
-        supplier: supplier || 'Global Robotics',
-        leadTimeDays: Number(leadTimeDays),
-        location: location || 'Warehouse Bay 1',
+        partNumber: partNumber.trim(),
+        name: name.trim(),
+        description: description.trim(),
+        categoryId,
+        category: categoryName || 'General Category',
+        locationId,
+        location: locationName || 'General Storage',
+        minThreshold: Number(minThreshold) || 1,
+        unitCost: Number(unitCost) || 0,
+        stockLeft: Number(stockLeft) || 0,
+        imageUrl: imageUrl || '',
       });
       onClose();
     } catch (err: any) {
@@ -116,14 +144,14 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] overflow-y-auto">
+      <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Boxes className="h-4 w-4" />
             </div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              {part ? 'Edit Item' : 'Add New Item'}
+              {part ? 'Edit Item Details' : 'Add New Item'}
             </h3>
           </div>
           <button
@@ -141,142 +169,116 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
+          {/* Item Number & Item Name */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Part Number</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Item Number <span className="text-rose-500">*</span>
+              </label>
               <input
                 type="text"
                 required
                 value={partNumber}
                 onChange={(e) => setPartNumber(e.target.value)}
-                placeholder="e.g. HD-CSG-20-80"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 font-mono text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                placeholder="e.g. SKU-8021"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 font-mono text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Part Name</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Item Name <span className="text-rose-500">*</span>
+              </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Harmonic Strain Wave Reducer"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as PartCategory)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              >
-                {CATEGORIES.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Target Robot Model / Fleet</label>
-              <input
-                type="text"
-                required
-                value={robotModel}
-                onChange={(e) => setRobotModel(e.target.value)}
-                placeholder="e.g. Universal UR10e, Boston Dynamics Spot"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                placeholder="e.g. Servo Motor Controller"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               />
             </div>
           </div>
 
+          {/* Relational Location & Category with Searchable Select (No Duplicates) */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SearchableSelect
+              id="part-location-select"
+              label="Location"
+              placeholder="Search or select location..."
+              options={locations}
+              value={locationName}
+              required
+              onChange={(name, id) => {
+                setLocationName(name);
+                setLocationId(id);
+              }}
+              onCreateOption={handleCreateLocation}
+            />
+
+            <SearchableSelect
+              id="part-category-select"
+              label="Category"
+              placeholder="Search or select category..."
+              options={categories}
+              value={categoryName}
+              onChange={(name, id) => {
+                setCategoryName(name);
+                setCategoryId(id);
+              }}
+              onCreateOption={handleCreateCategory}
+            />
+          </div>
+
+          {/* Item Description */}
           <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300">Engineering Description & Specs</label>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Item Description
+            </label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Technical specs, torque rating, voltage, compatible firmware..."
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              placeholder="Technical specifications, dimensions, notes..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
             />
           </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300">Hardware Image URL</label>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="url"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-              {imageUrl && (
-                <img
-                  src={imageUrl}
-                  alt="Preview"
-                  className="h-9 w-9 rounded-lg object-cover border border-slate-200 shrink-0 dark:border-slate-700"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Stock Metrics Inputs */}
+          {/* Numeric Fields: Minimum Threshold, Unit Price, Stock */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-              Stock Levels & Limits
-            </p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Stock Left</label>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Current Stock
+                </label>
                 <input
                   type="number"
                   min="0"
                   required
                   value={stockLeft}
                   onChange={(e) => setStockLeft(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Unit</label>
-                <input
-                  type="text"
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="pcs, sets"
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Min Threshold</label>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Minimum Threshold <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="number"
                   min="1"
                   required
                   value={minThreshold}
                   onChange={(e) => setMinThreshold(parseInt(e.target.value, 10) || 1)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Consumed</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={consumed}
-                  onChange={(e) => setConsumed(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Unit Price (₹)</label>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Unit Price (₹) <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -284,47 +286,21 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
                   required
                   value={unitCost}
                   onChange={(e) => setUnitCost(parseFloat(e.target.value) || 0)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-center font-bold text-xs text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 />
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Supplier</label>
-              <input
-                type="text"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-                placeholder="e.g. Maxon Motors"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
+          {/* Item Image */}
+          <ImageFileUpload
+            currentImageUrl={imageUrl}
+            onImageChange={(url) => setImageUrl(url)}
+            label="Item Image"
+            helperText="Upload an image for this item or provide an image link."
+          />
 
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Lead Time (Days)</label>
-              <input
-                type="number"
-                min="1"
-                value={leadTimeDays}
-                onChange={(e) => setLeadTimeDays(parseInt(e.target.value, 10) || 7)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">Warehouse Location</label>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. Aisle 2, Bin M-04"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
-          </div>
-
+          {/* Modal Action Buttons */}
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
@@ -337,7 +313,7 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
               id="save-part-submit-btn"
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-white shadow-sm hover:bg-indigo-700"
+              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2 font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
               <span>{part ? 'Update Item' : 'Create Item'}</span>
@@ -348,3 +324,4 @@ export const AddEditPartModal: React.FC<AddEditPartModalProps> = ({
     </div>
   );
 };
+

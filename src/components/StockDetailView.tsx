@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { SparePart, InventoryLog, PartCategory } from '../types.ts';
+import { SparePart, InventoryLog, Category, LocationItem } from '../types.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import { api, exportPartHistoryToCSV, exportPartHistoryToExcel, exportPartHistoryToPDF } from '../lib/apiClient.ts';
+import { ImageFileUpload } from './ImageFileUpload.tsx';
+import { SearchableSelect } from './SearchableSelect.tsx';
+import { PartImage } from './PartImage.tsx';
 import { 
   Package, 
   Search, 
@@ -12,23 +15,11 @@ import {
   FileSpreadsheet, 
   FileText, 
   Download, 
-  Clock, 
-  ShieldAlert, 
   CheckCircle2, 
   AlertTriangle, 
-  ArrowDownLeft, 
-  ArrowUpRight, 
   RefreshCw, 
-  DollarSign, 
   MapPin, 
-  Building2, 
-  Bot, 
   Layers, 
-  Image as ImageIcon,
-  ShoppingCart,
-  MinusCircle,
-  PlusCircle,
-  Trash2,
   ChevronDown
 } from 'lucide-react';
 
@@ -43,30 +34,6 @@ interface StockDetailViewProps {
   onDeletePart?: (part: SparePart) => void;
 }
 
-const CATEGORIES: PartCategory[] = [
-  'Actuators & Motors',
-  'Sensors & Vision',
-  'End Effectors & Grippers',
-  'Compute & Control Boards',
-  'Power & Battery Systems',
-  'Cables & Connectors',
-  'Pneumatics & Hydraulics',
-  'Structural & Mechanical'
-];
-
-const PRESET_IMAGES = [
-  { name: 'Actuator / Reducer', url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Servo Motor', url: 'https://images.unsplash.com/photo-1563770660941-20978e870e26?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Electric Gripper', url: 'https://images.unsplash.com/photo-1618042164219-62c820f10723?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Depth Camera / Vision', url: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=500&auto=format&fit=crop&q=80' },
-  { name: 'LiDAR / Safety Scanner', url: 'https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Teach Pendant', url: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Embedded Controller', url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Battery Module', url: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Pneumatic Cylinder', url: 'https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=500&auto=format&fit=crop&q=80' },
-  { name: 'Heavy Duty Cables', url: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=80' },
-];
-
 export const StockDetailView: React.FC<StockDetailViewProps> = ({
   parts,
   selectedPartId,
@@ -77,7 +44,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   onOpenReorderModal,
   onDeletePart,
 }) => {
-  const { permissions, user } = useAuth();
+  const { permissions } = useAuth();
   
   // Current active part
   const [activePartId, setActivePartId] = useState<string>(
@@ -91,21 +58,23 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   // Modes: 'view' | 'edit' | 'add'
   const [mode, setMode] = useState<'view' | 'edit' | 'add'>('view');
 
-  // Edit / Add Form State
+  // Relational data
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<LocationItem[]>([]);
+
+  // Edit / Add Form State (Contains only required fields)
   const [formData, setFormData] = useState({
     name: '',
     partNumber: '',
     imageUrl: '',
-    unit: 'pcs',
     stockLeft: 0,
     minThreshold: 5,
     unitCost: 0,
-    category: 'Actuators & Motors' as PartCategory,
-    robotModel: '',
-    description: '',
+    categoryId: '',
+    category: '',
+    locationId: '',
     location: '',
-    supplier: '',
-    leadTimeDays: 7
+    description: '',
   });
 
   // History & Logs state for current part
@@ -117,6 +86,24 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // Load relational categories and locations
+  const fetchRelations = async () => {
+    try {
+      const [cats, locs] = await Promise.all([
+        api.getCategories(),
+        api.getLocations()
+      ]);
+      setCategories(cats);
+      setLocations(locs);
+    } catch (err) {
+      console.error('Failed to load categories/locations:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRelations();
+  }, []);
+
   // Sync with selectedPartId prop if updated externally
   useEffect(() => {
     if (selectedPartId && selectedPartId !== activePartId) {
@@ -124,6 +111,15 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
       setMode('view');
     }
   }, [selectedPartId]);
+
+  // Keep activePartId valid when parts array updates (e.g., after deletion)
+  useEffect(() => {
+    if (activePartId && !parts.some(p => p.id === activePartId)) {
+      const fallbackId = parts.length > 0 ? parts[0].id : '';
+      setActivePartId(fallbackId);
+      if (onSelectPartId) onSelectPartId(fallbackId);
+    }
+  }, [parts, activePartId, onSelectPartId]);
 
   // Current selected part object
   const currentPart = parts.find(p => p.id === activePartId) || parts[0] || null;
@@ -135,28 +131,24 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
         name: currentPart.name,
         partNumber: currentPart.partNumber,
         imageUrl: currentPart.imageUrl,
-        unit: currentPart.unit || 'pcs',
         stockLeft: currentPart.stockLeft,
         minThreshold: currentPart.minThreshold,
         unitCost: currentPart.unitCost,
-        category: currentPart.category,
-        robotModel: currentPart.robotModel,
+        categoryId: currentPart.categoryId || '',
+        category: currentPart.category || '',
+        locationId: currentPart.locationId || '',
+        location: currentPart.location || '',
         description: currentPart.description || '',
-        location: currentPart.location,
-        supplier: currentPart.supplier,
-        leadTimeDays: currentPart.leadTimeDays
       });
     }
   }, [currentPart, mode]);
 
-  // Fetch audit logs for the current part
+  // Load logs when active part changes
   useEffect(() => {
-    if (currentPart && mode !== 'add') {
-      loadPartLogs(currentPart.id);
-    } else {
-      setPartLogs([]);
+    if (activePartId) {
+      loadPartLogs(activePartId);
     }
-  }, [currentPart?.id, mode]);
+  }, [activePartId]);
 
   const loadPartLogs = async (partId: string) => {
     setIsLogsLoading(true);
@@ -164,7 +156,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
       const logs = await api.getLogs(partId);
       setPartLogs(logs);
     } catch (err) {
-      console.error('Failed to load part logs:', err);
+      console.error('Failed to fetch logs:', err);
     } finally {
       setIsLogsLoading(false);
     }
@@ -181,36 +173,34 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
       name: currentPart.name,
       partNumber: currentPart.partNumber,
       imageUrl: currentPart.imageUrl,
-      unit: currentPart.unit || 'pcs',
       stockLeft: currentPart.stockLeft,
       minThreshold: currentPart.minThreshold,
       unitCost: currentPart.unitCost,
-      category: currentPart.category,
-      robotModel: currentPart.robotModel,
+      categoryId: currentPart.categoryId || '',
+      category: currentPart.category || '',
+      locationId: currentPart.locationId || '',
+      location: currentPart.location || '',
       description: currentPart.description || '',
-      location: currentPart.location,
-      supplier: currentPart.supplier,
-      leadTimeDays: currentPart.leadTimeDays
     });
+    fetchRelations();
     setMode('edit');
   };
 
   const handleStartAdd = () => {
     setFormData({
       name: '',
-      partNumber: `ROBO-${Math.floor(1000 + Math.random() * 9000)}`,
-      imageUrl: PRESET_IMAGES[0].url,
-      unit: 'pcs',
+      partNumber: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
+      imageUrl: '',
       stockLeft: 10,
       minThreshold: 5,
-      unitCost: 250.00,
-      category: 'Actuators & Motors',
-      robotModel: 'Universal UR10e',
+      unitCost: 150.00,
+      categoryId: categories.length > 0 ? categories[0].id : '',
+      category: categories.length > 0 ? categories[0].name : '',
+      locationId: locations.length > 0 ? locations[0].id : '',
+      location: locations.length > 0 ? locations[0].name : '',
       description: '',
-      location: 'Bin A-01, Shelf 1',
-      supplier: 'Robotics Supply Direct',
-      leadTimeDays: 7
     });
+    fetchRelations();
     setMode('add');
   };
 
@@ -218,10 +208,37 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
     setMode('view');
   };
 
+  const handleCreateCategory = async (catName: string) => {
+    try {
+      const created = await api.createCategory(catName);
+      setCategories(prev => [...prev.filter(c => c.id !== created.id), created]);
+      return created;
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to create category', 'error');
+      return null;
+    }
+  };
+
+  const handleCreateLocation = async (locName: string) => {
+    try {
+      const created = await api.createLocation(locName);
+      setLocations(prev => [...prev.filter(l => l.id !== created.id), created]);
+      return created;
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to create location', 'error');
+      return null;
+    }
+  };
+
   const handleSaveStockDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.partNumber.trim()) {
-      showNotification('Part Name and SKU/Part Number are required', 'error');
+      showNotification('Item Name and Item Number are required', 'error');
+      return;
+    }
+
+    if (!formData.location.trim()) {
+      showNotification('Location is required. Please select or add a location.', 'error');
       return;
     }
 
@@ -229,32 +246,44 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
     try {
       if (mode === 'add') {
         const newPart = await api.createPart({
-          ...formData,
+          partNumber: formData.partNumber.trim(),
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          categoryId: formData.categoryId,
+          category: formData.category,
+          locationId: formData.locationId,
+          location: formData.location,
           stockLeft: Number(formData.stockLeft) || 0,
           minThreshold: Number(formData.minThreshold) || 1,
           unitCost: Number(formData.unitCost) || 0,
-          leadTimeDays: Number(formData.leadTimeDays) || 1
+          imageUrl: formData.imageUrl || '',
         });
-        showNotification(`Successfully added new stock item: ${newPart.name}`);
+        showNotification(`Successfully added new item: ${newPart.name}`);
         onRefreshParts();
         setActivePartId(newPart.id);
         if (onSelectPartId) onSelectPartId(newPart.id);
         setMode('view');
       } else if (mode === 'edit' && currentPart) {
         const updated = await api.updatePart(currentPart.id, {
-          ...formData,
+          partNumber: formData.partNumber.trim(),
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          categoryId: formData.categoryId,
+          category: formData.category,
+          locationId: formData.locationId,
+          location: formData.location,
           stockLeft: Number(formData.stockLeft) || 0,
           minThreshold: Number(formData.minThreshold) || 1,
           unitCost: Number(formData.unitCost) || 0,
-          leadTimeDays: Number(formData.leadTimeDays) || 1
+          imageUrl: formData.imageUrl || '',
         });
-        showNotification(`Successfully updated stock details for ${updated.name}`);
+        showNotification(`Successfully updated item details for ${updated.name}`);
         onRefreshParts();
         loadPartLogs(currentPart.id);
         setMode('view');
       }
     } catch (err: any) {
-      showNotification(err.message || 'Failed to save stock details', 'error');
+      showNotification(err.message || 'Failed to save item details', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -264,7 +293,8 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
   const filteredPartsList = parts.filter(p => 
     p.name.toLowerCase().includes(partSearch.toLowerCase()) ||
     p.partNumber.toLowerCase().includes(partSearch.toLowerCase()) ||
-    p.robotModel.toLowerCase().includes(partSearch.toLowerCase())
+    p.location.toLowerCase().includes(partSearch.toLowerCase()) ||
+    p.category.toLowerCase().includes(partSearch.toLowerCase())
   );
 
   // Filter history logs
@@ -279,10 +309,10 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Stock Details
+            Item Details
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            View part details, change stock quantities, and download part history.
+            View and manage item number, location, threshold, image, and unit price.
           </p>
         </div>
 
@@ -307,7 +337,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
               className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
             >
               <Edit3 className="h-4 w-4" />
-              Edit Part Details
+              Edit Item Details
             </button>
           )}
 
@@ -318,7 +348,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
               className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors"
             >
               <Plus className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              Add New Part
+              Add New Item
             </button>
           )}
         </div>
@@ -330,7 +360,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                Selected Stock:
+                Selected Item:
               </span>
               <div className="relative">
                 <button
@@ -339,10 +369,10 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                   className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs sm:text-sm font-semibold text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/80 max-w-full"
                 >
                   <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400 shrink-0">
-                    {currentPart?.partNumber || 'Select Part'}
+                    {currentPart?.partNumber || 'Select Item'}
                   </span>
                   <span className="max-w-[140px] xs:max-w-[200px] sm:max-w-[340px] truncate">
-                    {currentPart?.name || 'No part selected'}
+                    {currentPart?.name || 'No item selected'}
                   </span>
                   <ChevronDown className="h-4 w-4 text-slate-400 shrink-0 ml-auto" />
                 </button>
@@ -354,7 +384,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                       <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-slate-400" />
                       <input
                         type="text"
-                        placeholder="Search part name, SKU, or robot model..."
+                        placeholder="Search item name, SKU, or location..."
                         value={partSearch}
                         onChange={(e) => setPartSearch(e.target.value)}
                         className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-3 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
@@ -368,86 +398,59 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                             setActivePartId(p.id);
                             if (onSelectPartId) onSelectPartId(p.id);
                             setIsPartDropdownOpen(false);
-                            setMode('view');
                           }}
-                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
+                          className={`w-full flex items-center justify-between rounded-xl p-2 text-left text-xs transition-colors ${
                             p.id === currentPart?.id
-                              ? 'bg-indigo-50 text-indigo-900 font-semibold dark:bg-indigo-950/60 dark:text-indigo-200'
-                              : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                              ? 'bg-indigo-50 text-indigo-700 font-semibold dark:bg-indigo-950 dark:text-indigo-300'
+                              : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
                           }`}
                         >
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            <img
-                              src={p.imageUrl}
-                              alt={p.name}
-                              className="h-7 w-7 rounded-md object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="truncate">
-                              <p className="truncate font-medium">{p.name}</p>
-                              <p className="font-mono text-[10px] text-slate-400">{p.partNumber} • {p.robotModel}</p>
-                            </div>
+                          <div className="truncate pr-2">
+                            <p className="truncate">{p.name}</p>
+                            <p className="font-mono text-[10px] text-slate-400">{p.partNumber} • {p.location}</p>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            p.stockLeft === 0 
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300' 
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                            p.stockLeft === 0
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                               : p.stockLeft <= p.minThreshold
                               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                               : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                           }`}>
-                            {p.stockLeft} {p.unit || 'pcs'}
+                            {p.stockLeft} in stock
                           </span>
                         </button>
                       ))}
-                      {filteredPartsList.length === 0 && (
-                        <p className="py-4 text-center text-xs text-slate-400">No matching items found</p>
-                      )}
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Quick stock operations for viewed part */}
+            {/* Quick Actions Bar */}
             {currentPart && (
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => onOpenConsumeModal(currentPart)}
-                  disabled={!permissions.canConsume || currentPart.stockLeft <= 0}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300 min-h-[36px]"
-                  title="Log component consumption / usage"
-                >
-                  <MinusCircle className="h-3.5 w-3.5" />
-                  Log Usage
-                </button>
-                <button
+                  id="stock-view-restock-btn"
                   onClick={() => onOpenRestockModal(currentPart)}
-                  disabled={!permissions.canRestock}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300 min-h-[36px]"
-                  title="Restock part count"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300"
                 >
-                  <PlusCircle className="h-3.5 w-3.5" />
+                  <Plus className="h-3.5 w-3.5" />
                   Restock
                 </button>
                 <button
-                  onClick={() => onOpenReorderModal(currentPart)}
-                  disabled={!permissions.canReorder}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300 min-h-[36px]"
-                  title="Generate replenishment PO"
+                  id="stock-view-consume-btn"
+                  onClick={() => onOpenConsumeModal(currentPart)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300"
                 >
-                  <ShoppingCart className="h-3.5 w-3.5" />
-                  Reorder PO
+                  Record Usage
                 </button>
-                {permissions.canDeletePart && onDeletePart && (
-                  <button
-                    onClick={() => onDeletePart(currentPart)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:bg-slate-800 dark:text-rose-400 dark:hover:bg-rose-950/30 min-h-[36px]"
-                    title="Delete item SKU"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </button>
-                )}
+                <button
+                  id="stock-view-reorder-btn"
+                  onClick={() => onOpenReorderModal(currentPart)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300"
+                >
+                  Reorder
+                </button>
               </div>
             )}
           </div>
@@ -455,40 +458,36 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* VIEW MODE: Comprehensive Stock Detail Presentation */}
+      {/* VIEW MODE: Clean, Focused Details (Item number, Name, Description, Location, Min threshold, Image, Unit price) */}
       {/* ========================================================================= */}
       {mode === 'view' && currentPart && (
-        <div className="space-y-6">
-          {/* Main Card: Image & Telemetry */}
+        <div className="space-y-6 animate-in fade-in duration-150">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            {/* Left Column: Component Image & Identification */}
+            {/* Left Column: Image & Core Details */}
             <div className="lg:col-span-4 space-y-4">
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <div className="relative aspect-video sm:aspect-square max-h-64 sm:max-h-none w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800">
-                  <img
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="aspect-4/3 w-full bg-slate-100 dark:bg-slate-800 relative">
+                  <PartImage
                     src={currentPart.imageUrl}
                     alt={currentPart.name}
-                    className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
                   />
                   <div className="absolute top-3 right-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider shadow-md ${
-                      currentPart.status === 'critical'
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold shadow-sm ${
+                      currentPart.stockLeft === 0
                         ? 'bg-rose-600 text-white'
-                        : currentPart.status === 'low_stock'
+                        : currentPart.stockLeft <= currentPart.minThreshold
                         ? 'bg-amber-500 text-white'
-                        : currentPart.status === 'reorder_placed'
-                        ? 'bg-blue-600 text-white'
                         : 'bg-emerald-600 text-white'
                     }`}>
-                      {currentPart.status.replace('_', ' ')}
+                      {currentPart.stockLeft === 0 ? 'Out of Stock' : currentPart.stockLeft <= currentPart.minThreshold ? 'Low Stock' : 'In Stock'}
                     </span>
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-2">
+                <div className="p-4 space-y-3">
                   <span className="inline-block rounded-md bg-indigo-50 px-2 py-1 font-mono text-xs font-bold text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300">
-                    {currentPart.partNumber}
+                    Item #{currentPart.partNumber}
                   </span>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white">
                     {currentPart.name}
@@ -499,53 +498,44 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                 </div>
               </div>
 
-              {/* Physical Logistics Box */}
+              {/* Relational Location & Category Details */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Logistics & Supplier
+                  Storage & Classification
                 </h3>
                 <div className="grid grid-cols-1 gap-2 text-xs">
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
                     <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                      Storage Location
+                      <MapPin className="h-4 w-4 text-indigo-500" />
+                      Location
                     </span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{currentPart.location}</span>
+                    <span className="font-semibold text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+                      {currentPart.location || 'General Storage'}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+
+                  <div className="flex items-center justify-between py-1.5">
                     <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                      <Building2 className="h-3.5 w-3.5 text-slate-400" />
-                      Supplier
+                      <Layers className="h-4 w-4 text-slate-400" />
+                      Category
                     </span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{currentPart.supplier}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                      <Clock className="h-3.5 w-3.5 text-slate-400" />
-                      Lead Time
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      {currentPart.category || 'General'}
                     </span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{currentPart.leadTimeDays} Days</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                      <Bot className="h-3.5 w-3.5 text-slate-400" />
-                      Target Robot
-                    </span>
-                    <span className="font-semibold text-indigo-600 dark:text-indigo-400">{currentPart.robotModel}</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Telemetry Gauges, Count & Valuation */}
+            {/* Right Column: Inventory Metrics & Audit History */}
             <div className="lg:col-span-8 space-y-6">
               {/* Key Stock Metrics Triad */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {/* Stock Left / Count */}
-                <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                {/* Stock Left */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Stock Count Left
+                      Current Stock
                     </span>
                     <span className={`inline-flex h-2.5 w-2.5 rounded-full ${
                       currentPart.stockLeft === 0 ? 'bg-rose-500 animate-ping' : currentPart.stockLeft <= currentPart.minThreshold ? 'bg-amber-500' : 'bg-emerald-500'
@@ -555,15 +545,11 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                     <span className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                       {currentPart.stockLeft}
                     </span>
-                    <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                      {currentPart.unit || 'pcs'}
-                    </span>
                   </div>
-                  {/* Progress bar vs minThreshold */}
                   <div className="mt-3">
                     <div className="flex justify-between text-[11px] text-slate-400 dark:text-slate-500 mb-1">
-                      <span>Safety Buffer</span>
-                      <span>Min: {currentPart.minThreshold} {currentPart.unit || 'pcs'}</span>
+                      <span>Safety Level</span>
+                      <span>Min: {currentPart.minThreshold}</span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
@@ -582,78 +568,40 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                   </div>
                 </div>
 
-                {/* Consumed Count */}
+                {/* Minimum Threshold */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Historical Consumed
+                      Minimum Threshold
                     </span>
-                    <ArrowDownLeft className="h-4 w-4 text-slate-400" />
+                    <AlertTriangle className={`h-4 w-4 ${currentPart.stockLeft <= currentPart.minThreshold ? 'text-amber-500' : 'text-slate-400'}`} />
                   </div>
                   <div className="mt-3 flex items-baseline gap-2">
                     <span className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-                      {currentPart.consumed}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                      {currentPart.unit || 'pcs'}
+                      {currentPart.minThreshold}
                     </span>
                   </div>
                   <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
-                    Total units utilized across maintenance shifts
+                    {currentPart.stockLeft <= currentPart.minThreshold ? 'Attention: Below minimum safety threshold' : 'Stock level is safely maintained'}
                   </p>
                 </div>
 
-                {/* Need To Order */}
+                {/* Unit Price */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Need To Order
+                      Unit Price
                     </span>
-                    <ArrowUpRight className={`h-4 w-4 ${currentPart.needToOrder > 0 ? 'text-amber-500' : 'text-slate-400'}`} />
+                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">INR</span>
                   </div>
-                  <div className="mt-3 flex items-baseline gap-2">
-                    <span className={`text-3xl font-extrabold tracking-tight ${
-                      currentPart.needToOrder > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'
-                    }`}>
-                      {currentPart.needToOrder}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                      {currentPart.unit || 'pcs'}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
-                    {currentPart.needToOrder > 0
-                      ? 'Replenishment order recommended'
-                      : 'Stock levels comfortably above threshold'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Financial & Valuation Card */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Cost & Stock Value
-                </h3>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Unit Cost</span>
-                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                  <div className="mt-3 flex items-baseline gap-1">
+                    <span className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                       ₹{currentPart.unitCost.toLocaleString('en-IN')}
-                      <span className="text-xs font-normal text-slate-500"> / {currentPart.unit || 'pcs'}</span>
-                    </p>
+                    </span>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Total Stock Value</span>
-                    <p className="mt-1 text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                      ₹{(currentPart.stockLeft * currentPart.unitCost).toLocaleString('en-IN')}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-800/60">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Total Value Used</span>
-                    <p className="mt-1 text-xl font-bold text-slate-700 dark:text-slate-300">
-                      ₹{(currentPart.consumed * currentPart.unitCost).toLocaleString('en-IN')}
-                    </p>
-                  </div>
+                  <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    Total Value: ₹{(currentPart.stockLeft * currentPart.unitCost).toLocaleString('en-IN')}
+                  </p>
                 </div>
               </div>
 
@@ -665,7 +613,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                       Stock Movement & Audit History
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Complete activity ledger for {currentPart.partNumber} ({partLogs.length} events recorded)
+                      Complete activity ledger for Item #{currentPart.partNumber}
                     </p>
                   </div>
 
@@ -759,7 +707,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                               </span>
                             </td>
                             <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                              {log.type === 'consumed' ? '-' : '+'}{log.quantity} {currentPart.unit || 'pcs'}
+                              {log.type === 'consumed' ? '-' : '+'}{log.quantity}
                             </td>
                             <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                               {log.performedBy}
@@ -779,8 +727,27 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
         </div>
       )}
 
+      {mode === 'view' && !currentPart && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <Package className="mx-auto h-12 w-12 text-slate-400 dark:text-slate-600 mb-3" />
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Item Selected</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+            The selected item was removed or the inventory catalog is empty. Select an item from the dropdown above or create a new item.
+          </p>
+          {permissions.canEditPart && (
+            <button
+              onClick={() => setMode('add')}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Add New Item
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ========================================================================= */}
-      {/* EDIT or ADD MODE: Inline Form on the Same Page */}
+      {/* EDIT or ADD MODE: Only requested fields with SearchableSelect */}
       {/* ========================================================================= */}
       {(mode === 'edit' || mode === 'add') && (
         <form onSubmit={handleSaveStockDetails} className="space-y-6">
@@ -797,14 +764,12 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                   ) : (
                     <>
                       <Edit3 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                      Modify Stock Details: {formData.name || currentPart?.name}
+                      Edit Item Details: {formData.name || currentPart?.name}
                     </>
                   )}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  {mode === 'add'
-                    ? 'Define identity, initial count, measuring unit, image, and safety thresholds.'
-                    : 'Update hardware specs, live image, measuring unit, and direct inventory count.'}
+                  Manage Item number, Item Name, Description, Location, Minimum threshold, Image, and Unit price.
                 </p>
               </div>
 
@@ -819,74 +784,39 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
 
             {/* Form Fields Grid */}
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
-              {/* Image Preview & Selector (Left side) */}
+              {/* Image File Handler & Preview (Left side) */}
               <div className="lg:col-span-4 space-y-4">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Part Image Preview
-                </label>
-                <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800">
-                  <img
-                    src={formData.imageUrl || PRESET_IMAGES[0].url}
-                    alt="Preview"
-                    className="h-full w-full object-cover"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = PRESET_IMAGES[0].url;
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Image URL
-                  </label>
-                  <input
-                    id="input-part-image"
-                    type="url"
-                    value={formData.imageUrl}
-                    onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                    placeholder="https://..."
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  />
-                </div>
-
-                {/* Preset Image Suggestions */}
-                <div>
-                  <span className="block text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1.5">
-                    Or select a preset robotics image:
-                  </span>
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {PRESET_IMAGES.map((preset, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, imageUrl: preset.url })}
-                        title={preset.name}
-                        className={`aspect-square overflow-hidden rounded-lg border-2 transition-all ${
-                          formData.imageUrl === preset.url
-                            ? 'border-indigo-600 scale-105'
-                            : 'border-transparent opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img
-                          src={preset.url}
-                          alt={preset.name}
-                          className="h-full w-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <ImageFileUpload
+                  currentImageUrl={formData.imageUrl}
+                  onImageChange={(url) => setFormData({ ...formData, imageUrl: url })}
+                  label="Item Image (Upload or link)"
+                  helperText="Upload image file directly to server storage. No third-party image services are used."
+                />
               </div>
 
-              {/* Core Stock Details & Parameters (Right side) */}
+              {/* Core Item Details (Right side) */}
               <div className="lg:col-span-8 space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {/* Part Name */}
+                  {/* Item Number */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Part Name *
+                      Item Number *
+                    </label>
+                    <input
+                      id="input-part-sku"
+                      type="text"
+                      required
+                      value={formData.partNumber}
+                      onChange={(e) => setFormData({ ...formData, partNumber: e.target.value })}
+                      placeholder="e.g., SKU-1049"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 font-mono text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+
+                  {/* Item Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Item Name *
                     </label>
                     <input
                       id="input-part-name"
@@ -898,62 +828,50 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
                   </div>
-
-                  {/* SKU / Part Number */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      SKU / Part Number *
-                    </label>
-                    <input
-                      id="input-part-sku"
-                      type="text"
-                      required
-                      value={formData.partNumber}
-                      onChange={(e) => setFormData({ ...formData, partNumber: e.target.value })}
-                      placeholder="e.g., HD-CSG-20-80"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 font-mono text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-
-                  {/* Category */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Category
-                    </label>
-                    <select
-                      id="input-part-category"
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value as PartCategory })}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    >
-                      {CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Robot Model */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Compatible Robot Model
-                    </label>
-                    <input
-                      id="input-part-model"
-                      type="text"
-                      value={formData.robotModel}
-                      onChange={(e) => setFormData({ ...formData, robotModel: e.target.value })}
-                      placeholder="e.g., Universal UR10e, Boston Dynamics Spot"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
                 </div>
 
-                {/* Stock Count, Measuring Unit & Financials */}
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 pt-2">
+                {/* Relational Location & Category: Searchable Select with Duplicate Prevention */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <SearchableSelect
+                    id="input-part-location"
+                    label="Location"
+                    placeholder="Search or select location..."
+                    options={locations}
+                    value={formData.location}
+                    required
+                    onChange={(name, id) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        location: name,
+                        locationId: id,
+                      }));
+                    }}
+                    onCreateOption={handleCreateLocation}
+                  />
+
+                  <SearchableSelect
+                    id="input-part-category"
+                    label="Category"
+                    placeholder="Search or select category..."
+                    options={categories}
+                    value={formData.category}
+                    onChange={(name, id) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        category: name,
+                        categoryId: id,
+                      }));
+                    }}
+                    onCreateOption={handleCreateCategory}
+                  />
+                </div>
+
+                {/* Stock Count, Safety Min Threshold & Unit Price */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-2">
                   {/* Stock Count */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Stock Count *
+                      Current Stock Count *
                     </label>
                     <input
                       id="input-part-count"
@@ -964,111 +882,52 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                       onChange={(e) => setFormData({ ...formData, stockLeft: Math.max(0, parseInt(e.target.value, 10) || 0) })}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
-                    <span className="text-[10px] text-slate-400">Current available on shelf</span>
-                  </div>
-
-                  {/* Unit of Measurement */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Measuring Unit
-                    </label>
-                    <input
-                      id="input-part-unit"
-                      type="text"
-                      value={formData.unit}
-                      onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                      placeholder="pcs, sets, units"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                    <span className="text-[10px] text-slate-400">e.g. pcs, sets, meters</span>
                   </div>
 
                   {/* Safety Min Threshold */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Min Threshold
+                      Minimum Threshold *
                     </label>
                     <input
                       id="input-part-threshold"
                       type="number"
                       min="1"
+                      required
                       value={formData.minThreshold}
                       onChange={(e) => setFormData({ ...formData, minThreshold: Math.max(1, parseInt(e.target.value, 10) || 1) })}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
-                    <span className="text-[10px] text-slate-400">Triggers low-stock alert</span>
                   </div>
 
-                  {/* Unit Cost */}
+                  {/* Unit Price */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Unit Cost (₹)
+                      Unit Price (₹) *
                     </label>
                     <input
                       id="input-part-cost"
                       type="number"
                       step="0.01"
                       min="0"
+                      required
                       value={formData.unitCost}
                       onChange={(e) => setFormData({ ...formData, unitCost: parseFloat(e.target.value) || 0 })}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
-                    <span className="text-[10px] text-slate-400">Purchase price per unit</span>
                   </div>
                 </div>
 
-                {/* Logistics */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Storage Location
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      placeholder="e.g., Aisle 2, Bin M-04"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Supplier
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.supplier}
-                      onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                      placeholder="e.g., Harmonic Drive LLC"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Lead Time (Days)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={formData.leadTimeDays}
-                      onChange={(e) => setFormData({ ...formData, leadTimeDays: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Description */}
+                {/* Item Description */}
                 <div className="pt-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Technical Specifications / Description
+                    Item Description
                   </label>
                   <textarea
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Enter gear ratio, voltage, encoder specs, or maintenance instructions..."
+                    placeholder="Enter item description, specifications, dimensions, or notes..."
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   />
                 </div>
@@ -1096,7 +955,7 @@ export const StockDetailView: React.FC<StockDetailViewProps> = ({
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {mode === 'add' ? 'Save & Add to Inventory' : 'Save Stock Details'}
+                {mode === 'add' ? 'Save & Add Item' : 'Save Item Details'}
               </button>
             </div>
           </div>

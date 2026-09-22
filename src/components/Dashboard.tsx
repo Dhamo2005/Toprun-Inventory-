@@ -69,8 +69,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   }
 
-  // Find parts requiring reorder for the quick replenishment table
-  const reorderUrgentParts = parts.filter(p => p.needToOrder > 0).slice(0, 5);
+  // Find parts requiring attention (stock below or equal to minimum threshold)
+  const reorderUrgentParts = parts.filter(p => p.stockLeft <= p.minThreshold).slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -81,7 +81,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             Inventory Dashboard
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
-            Overview of items, stock levels, usage, and orders.
+            Overview of items, stock levels, and threshold alerts.
           </p>
         </div>
 
@@ -91,7 +91,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
           >
             <ShoppingCart className="h-3.5 w-3.5" />
-            <span>Orders ({reorderUrgentParts.length})</span>
+            <span>Low Stock Items ({reorderUrgentParts.length})</span>
           </button>
         </div>
       </div>
@@ -422,12 +422,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <table className="w-full min-w-[640px] text-left text-xs text-slate-600 dark:text-slate-300">
             <thead className="bg-slate-50 text-[10px] uppercase text-slate-400 dark:bg-slate-800/60 dark:text-slate-500">
               <tr>
-                <th className="py-2.5 px-3">Part Details</th>
-                <th className="py-2.5 px-2">Robot Platform</th>
+                <th className="py-2.5 px-3">Item Details</th>
+                <th className="py-2.5 px-2">Location</th>
+                <th className="py-2.5 px-2">Category</th>
                 <th className="py-2.5 px-2 text-center">Stock Left</th>
-                <th className="py-2.5 px-2 text-center">Threshold</th>
-                <th className="py-2.5 px-2 text-center">To Order</th>
-                <th className="py-2.5 px-2">Supplier & Lead</th>
+                <th className="py-2.5 px-2 text-center">Min Threshold</th>
+                <th className="py-2.5 px-2 text-right">Unit Price</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
             </thead>
@@ -438,19 +438,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <span className="font-bold text-slate-900 dark:text-white block">{part.name}</span>
                     <span className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400">{part.partNumber}</span>
                   </td>
-                  <td className="py-2.5 px-2">{part.robotModel}</td>
+                  <td className="py-2.5 px-2">
+                    <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      {part.location || 'General Storage'}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-2 text-slate-600 dark:text-slate-400 text-xs">
+                    {part.category || 'General'}
+                  </td>
                   <td className="py-2.5 px-2 text-center font-bold text-rose-600">
                     {part.stockLeft}
                   </td>
                   <td className="py-2.5 px-2 text-center font-medium text-slate-500">
                     {part.minThreshold}
                   </td>
-                  <td className="py-2.5 px-2 text-center font-bold text-amber-600 dark:text-amber-400">
-                    +{part.needToOrder}
-                  </td>
-                  <td className="py-2.5 px-2">
-                    <span>{part.supplier}</span>
-                    <span className="text-[10px] text-slate-400 block">{part.leadTimeDays} days lead time</span>
+                  <td className="py-2.5 px-2 text-right font-semibold text-slate-900 dark:text-white">
+                    ₹{part.unitCost.toLocaleString('en-IN')}
                   </td>
                   <td className="py-2.5 px-3 text-right">
                     {permissions.canReorder ? (

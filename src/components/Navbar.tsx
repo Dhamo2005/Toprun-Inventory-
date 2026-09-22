@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext.tsx';
 import { useTheme } from '../context/ThemeContext.tsx';
 import { UserRole, InventoryAlert } from '../types.ts';
 import { ToprunLogo } from './ToprunLogo.tsx';
+import { UserAvatar } from './UserAvatar.tsx';
 import { 
   Sun, 
   Moon, 
@@ -14,7 +15,10 @@ import {
   X,
   AlertTriangle,
   AlertCircle,
-  ChevronDown
+  ChevronDown,
+  CheckCircle2,
+  ArrowRight,
+  UserCheck
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -22,13 +26,21 @@ interface NavbarProps {
   isSidebarOpen: boolean;
   alerts: InventoryAlert[];
   onOpenAlerts: () => void;
+  onSelectPartId?: (partId: string) => void;
+  onResolveAlert?: (alertId: string) => Promise<void>;
+  onNavigateHome?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onToggleSidebar,
   isSidebarOpen,
   alerts,
-  onOpenAlerts
+  onOpenAlerts,
+  onSelectPartId,
+  onResolveAlert,
+  onNavigateHome,
+  onOpenProfile
 }) => {
   const { user, role, logout, setLoginModalOpen } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -73,27 +85,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
 
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+        <button
+          id="navbar-logo-btn"
+          type="button"
+          onClick={onNavigateHome}
+          aria-label="Go to homepage"
+          title="Go to Homepage"
+          className="flex items-center rounded-lg p-1 transition-transform hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+        >
           <ToprunLogo className="h-8 w-8 sm:h-9 sm:w-9 shrink-0" />
-          <span className="font-bold text-slate-900 tracking-tight dark:text-white text-lg sm:text-xl">
-            Inventory
-          </span>
-        </div>
+        </button>
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {/* Verified ERP Role Security Badge (Non-clickable, reflects login credentials) */}
-        {user && (
-          <div
-            className={`hidden sm:flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${roleColors[role].bg} ${roleColors[role].text} ${roleColors[role].border}`}
-            title={`Authenticated as ${role.toUpperCase()}`}
-          >
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-            <span className="capitalize hidden lg:inline text-slate-500 dark:text-slate-400 font-normal">Role:</span>
-            <span className="font-bold uppercase text-xs">{role}</span>
-          </div>
-        )}
-
         {/* Alerts Bell (Compact & Accessible) */}
         <div ref={alertPopoverRef} className="relative">
           <button
@@ -114,8 +118,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full mt-1 w-[calc(100vw-1rem)] max-w-sm sm:w-96 rounded-xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-800 z-50 animate-in fade-in zoom-in-95 duration-100">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2 dark:border-slate-700">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  <span className="text-xs font-bold text-slate-900 dark:text-white">Active Inventory Alerts</span>
+                  <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">Database Stock Alerts</span>
+                  {activeAlerts.length > 0 && (
+                    <span className="rounded-full bg-rose-100 dark:bg-rose-950/80 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300">
+                      {activeAlerts.length} active
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => {
@@ -124,32 +133,96 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }}
                   className="text-xs text-indigo-600 hover:underline dark:text-indigo-400 font-medium py-1 px-2"
                 >
-                  View All
+                  View All ({alerts.length})
                 </button>
               </div>
-              <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 py-1">
+
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 py-1">
                 {activeAlerts.length === 0 ? (
                   <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
-                    No alerts. All parts have enough stock.
+                    <CheckCircle2 className="mx-auto h-7 w-7 text-emerald-500 mb-1.5 opacity-80" />
+                    <p className="font-semibold text-slate-700 dark:text-slate-200">All parts have adequate stock</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Database triggers report no low-stock alerts</p>
                   </div>
                 ) : (
-                  activeAlerts.slice(0, 4).map((alt) => (
-                    <div key={alt.id} className="py-2 px-1 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        {alt.severity === 'critical' ? (
-                          <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                        )}
-                        <span className="font-semibold text-slate-900 dark:text-white truncate">{alt.title}</span>
+                  activeAlerts.slice(0, 5).map((alt) => (
+                    <div key={alt.id} className="py-2.5 px-1 text-xs hover:bg-slate-50/70 dark:hover:bg-slate-700/40 rounded-lg transition-colors">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {alt.severity === 'critical' ? (
+                            <AlertCircle className="h-3.5 w-3.5 text-rose-500 shrink-0 mt-0.5" />
+                          ) : (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          )}
+                          <span className="font-bold text-slate-900 dark:text-white truncate max-w-[200px]">
+                            {alt.title}
+                          </span>
+                        </div>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                          alt.severity === 'critical' 
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300' 
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                        }`}>
+                          {alt.severity}
+                        </span>
                       </div>
-                      <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+
+                      <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
                         {alt.message}
                       </p>
+
+                      <div className="mt-2 flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                        <span className="font-mono text-[10px] text-slate-400">
+                          {alt.partNumber}
+                        </span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          {onSelectPartId && alt.partId && (
+                            <button
+                              onClick={() => {
+                                setAlertPopoverOpen(false);
+                                onSelectPartId(alt.partId);
+                              }}
+                              className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/80 transition-colors"
+                            >
+                              <span>Inspect</span>
+                              <ArrowRight className="h-2.5 w-2.5" />
+                            </button>
+                          )}
+
+                          {onResolveAlert && (role === 'admin' || role === 'manager') && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                await onResolveAlert(alt.id);
+                              }}
+                              className="inline-flex items-center gap-1 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+                              title="Mark resolved in database"
+                            >
+                              <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                              <span>Resolve</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
+
+              {activeAlerts.length > 5 && (
+                <div className="border-t border-slate-100 pt-2 text-center dark:border-slate-700">
+                  <button
+                    onClick={() => {
+                      setAlertPopoverOpen(false);
+                      onOpenAlerts();
+                    }}
+                    className="text-xs text-indigo-600 font-semibold hover:underline dark:text-indigo-400"
+                  >
+                    +{activeAlerts.length - 5} more alerts in Alerts Center
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -174,21 +247,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex items-center gap-1.5 rounded-xl p-0.5 sm:p-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             >
               <div className="relative">
-                <img
+                <UserAvatar
                   src={user.avatar}
-                  alt={user.name}
-                  className="h-8 w-8 sm:h-8 sm:w-8 rounded-full border border-slate-200 object-cover dark:border-slate-700 shrink-0"
+                  name={user.name}
+                  size="sm"
+                  className="border border-slate-200 dark:border-slate-700 shrink-0"
                 />
-                <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
-                  role === 'admin' ? 'bg-rose-500' : role === 'manager' ? 'bg-blue-500' : role === 'technician' ? 'bg-emerald-500' : 'bg-slate-400'
-                }`} />
+                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-900 bg-emerald-500" />
               </div>
               <div className="hidden text-left xl:block">
                 <p className="text-xs font-semibold text-slate-800 dark:text-white leading-tight">
                   {user.name}
                 </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 capitalize">
-                  {role}
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
+                  {user.department || 'Active'}
                 </p>
               </div>
               <ChevronDown className="h-3 w-3 text-slate-400 hidden sm:block shrink-0" />
@@ -199,10 +271,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full mt-1 w-[calc(100vw-1rem)] max-w-xs sm:max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 z-50 animate-in fade-in zoom-in-95 duration-100">
                 {/* 1. User Identity Header */}
                 <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  <img
+                  <UserAvatar
                     src={user.avatar}
-                    alt={user.name}
-                    className="h-11 w-11 rounded-full object-cover border-2 border-indigo-500/30 shrink-0"
+                    name={user.name}
+                    size="md"
+                    className="border-2 border-indigo-500/30 shrink-0"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
@@ -245,6 +318,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Edit Profile & Password Button */}
+                <div className="py-2.5 border-b border-slate-100 dark:border-slate-800">
+                  <button
+                    id="navbar-profile-settings-btn"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      if (onOpenProfile) onOpenProfile();
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl bg-indigo-50/90 px-3 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/60 min-h-[40px] transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <UserCheck className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                      <span>Edit Profile & Password</span>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  </button>
                 </div>
 
                 {/* 3. Appearance Theme & Quick Controls */}

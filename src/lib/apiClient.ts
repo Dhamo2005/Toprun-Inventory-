@@ -1,7 +1,8 @@
-import { SparePart, User, InventoryAlert, InventoryLog, ReorderOrder, DashboardStats } from '../types.ts';
-import { localStore } from './localStore.ts';
+import { SparePart, User, InventoryAlert, InventoryLog, ReorderOrder, DashboardStats, Category, LocationItem } from '../types.ts';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('robopart_token') || 'usr_admin';
@@ -11,248 +12,298 @@ function getAuthHeaders(): Record<string, string> {
   };
 }
 
-async function safeRequest<T>(
-  url: string,
-  options: RequestInit,
-  fallbackFn: () => T | Promise<T>
-): Promise<T> {
-  try {
-    const res = await fetch(url, options);
-    const contentType = res.headers.get('content-type') || '';
-    
-    // If successful and returned JSON
-    if (res.ok && contentType.includes('application/json')) {
-      return await res.json();
-    }
-    
-    // If error returned with JSON
-    if (!res.ok && contentType.includes('application/json')) {
-      const err = await res.json();
-      throw new Error(err.error || `Request failed with status ${res.status}`);
-    }
+async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+  
+  // Guard with timeout so requests never hang indefinitely
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    // If server returned HTML (e.g. Vercel 404 "The page could not be found")
-    // or non-JSON content, seamlessly use localStore fallback
-    return await fallbackFn();
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      signal: options?.signal || controller.signal,
+    });
   } catch (err: any) {
-    // If it's a genuine validation error thrown above, rethrow
-    if (err.message && !err.message.includes('Unexpected token') && !err.message.includes('Failed to fetch')) {
-      throw err;
+    if (err.name === 'AbortError') {
+      throw new Error(`Request timed out while contacting server at ${endpoint}. Please check server status.`);
     }
-    // On network failure or HTML parse failure, use fallback
-    return await fallbackFn();
+    throw new Error(`Server connection error: Unable to reach ${url}. Please verify the server is running.`);
+  } finally {
+    clearTimeout(timeoutId);
   }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok) {
+    if (contentType.includes('application/json')) {
+      const err = await res.json();
+      throw new Error(err.error || `Server error (${res.status})`);
+    }
+    const text = await res.text();
+    throw new Error(`Server returned error ${res.status}: ${text.slice(0, 120)}`);
+  }
+
+  if (res.status === 204) {
+    return {} as T;
+  }
+
+  if (contentType.includes('application/json')) {
+    return (await res.json()) as T;
+  }
+
+  return {} as T;
 }
 
 export const api = {
+  // Categories & Locations (Relational)
+  async getCategories(): Promise<Category[]> {
+    const data = await request<{ categories: Category[] }>('/api/categories', {
+      headers: getAuthHeaders()
+    });
+    return data.categories || [];
+  },
+
+  async createCategory(name: string): Promise<Category> {
+    const data = await request<{ category: Category }>('/api/categories', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ name })
+    });
+    return data.category;
+  },
+
+  async getLocations(): Promise<LocationItem[]> {
+    const data = await request<{ locations: LocationItem[] }>('/api/locations', {
+      headers: getAuthHeaders()
+    });
+    return data.locations || [];
+  },
+
+  async createLocation(name: string): Promise<LocationItem> {
+    const data = await request<{ location: LocationItem }>('/api/locations', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ name })
+    });
+    return data.location;
+  },
+
   // Spare Parts / Items
   async getParts(params?: {
     search?: string;
     category?: string;
+    location?: string;
     status?: string;
-    robotModel?: string;
     sort?: string;
     order?: 'asc' | 'desc';
   }): Promise<SparePart[]> {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.category) query.set('category', params.category);
+    if (params?.location) query.set('location', params.location);
     if (params?.status) query.set('status', params.status);
-    if (params?.robotModel) query.set('robotModel', params.robotModel);
     if (params?.sort) query.set('sort', params.sort);
     if (params?.order) query.set('order', params.order);
 
-    const result = await safeRequest(
-      `/api/parts?${query.toString()}`,
-      { headers: getAuthHeaders() },
-      () => localStore.getParts(params)
-    );
-    return Array.isArray(result) ? result : ((result as any).parts || []);
+    const data = await request<{ parts: SparePart[] }>(`/api/parts?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    return data.parts || [];
   },
 
-  async createPart(part: Partial<SparePart>): Promise<SparePart> {
-    const result = await safeRequest(
-      '/api/parts',
-      {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(part)
-      },
-      () => localStore.createPart(part)
-    );
-    return (result as any).part || result;
+  async createPart(part: Partial<SparePart> & { category?: string; location?: string }): Promise<SparePart> {
+    const data = await request<{ part: SparePart }>('/api/parts', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(part)
+    });
+    return data.part;
   },
 
-  async updatePart(id: string, part: Partial<SparePart>): Promise<SparePart> {
-    const result = await safeRequest(
-      `/api/parts/${id}`,
-      {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(part)
-      },
-      () => localStore.updatePart(id, part)
-    );
-    return (result as any).part || result;
+  async updatePart(id: string, part: Partial<SparePart> & { category?: string; location?: string }): Promise<SparePart> {
+    const data = await request<{ part: SparePart }>(`/api/parts/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(part)
+    });
+    return data.part;
   },
 
   async deletePart(id: string): Promise<void> {
-    await safeRequest(
-      `/api/parts/${id}`,
-      {
-        method: 'DELETE',
-        headers: getAuthHeaders()
-      },
-      () => localStore.deletePart(id)
-    );
+    await request<void>(`/api/parts/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+  },
+
+  async uploadPartImage(file: File): Promise<{ imageUrl: string; fileName: string; size: number }> {
+    const token = localStorage.getItem('robopart_token') || 'usr_admin';
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const url = `${API_BASE}/api/upload`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+    } catch (err: any) {
+      throw new Error(`Upload connection failed: ${err.message}`);
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(err.error || `Failed to upload image (${res.status})`);
+    }
+
+    return await res.json();
   },
 
   async consumeStock(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const result = await safeRequest(
-      `/api/parts/${id}/consume`,
-      {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ quantity, notes })
-      },
-      () => localStore.consumeStock(id, quantity, notes)
-    );
-    return (result as any).part || result;
+    const data = await request<{ part: SparePart }>(`/api/parts/${id}/consume`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ quantity, notes })
+    });
+    return data.part;
   },
 
   async restockPart(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const result = await safeRequest(
-      `/api/parts/${id}/restock`,
-      {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ quantity, notes })
-      },
-      () => localStore.restockPart(id, quantity, notes)
-    );
-    return (result as any).part || result;
+    const data = await request<{ part: SparePart }>(`/api/parts/${id}/restock`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ quantity, notes })
+    });
+    return data.part;
   },
 
-  async reorderPart(id: string, quantity: number, supplier?: string): Promise<any> {
-    return safeRequest(
-      `/api/parts/${id}/reorder`,
-      {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ quantity, supplier })
-      },
-      () => localStore.createOrder({ partId: id, quantity })
-    );
+  async reorderPart(id: string, quantity: number): Promise<any> {
+    return request<any>(`/api/parts/${id}/reorder`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ quantity })
+    });
   },
 
   // Dashboard Stats
   async getDashboardStats(): Promise<DashboardStats> {
-    return safeRequest(
-      '/api/dashboard/stats',
-      { headers: getAuthHeaders() },
-      () => localStore.getStats()
-    );
+    return request<DashboardStats>('/api/dashboard/stats', {
+      headers: getAuthHeaders()
+    });
   },
 
   // Alerts
   async getAlerts(): Promise<InventoryAlert[]> {
-    const result = await safeRequest(
-      '/api/alerts',
-      { headers: getAuthHeaders() },
-      () => localStore.getAlerts()
-    );
-    return Array.isArray(result) ? result : ((result as any).alerts || []);
+    const data = await request<{ alerts: InventoryAlert[] }>('/api/alerts', {
+      headers: getAuthHeaders()
+    });
+    return data.alerts || [];
   },
 
   async resolveAlert(id: string): Promise<void> {
-    await safeRequest(
-      `/api/alerts/${id}/resolve`,
-      {
-        method: 'PUT',
-        headers: getAuthHeaders()
-      },
-      () => localStore.resolveAlert(id)
-    );
+    await request<void>(`/api/alerts/${id}/resolve`, {
+      method: 'PUT',
+      headers: getAuthHeaders()
+    });
   },
 
   // Inventory Logs
   async getLogs(partId?: string): Promise<InventoryLog[]> {
     const url = partId ? `/api/inventory/logs?partId=${encodeURIComponent(partId)}` : '/api/inventory/logs';
-    const result = await safeRequest(
-      url,
-      { headers: getAuthHeaders() },
-      () => localStore.getLogs()
-    );
-    return Array.isArray(result) ? result : ((result as any).logs || []);
+    const data = await request<{ logs: InventoryLog[] }>(url, {
+      headers: getAuthHeaders()
+    });
+    return data.logs || [];
   },
 
   // Reorders
   async getReorders(): Promise<ReorderOrder[]> {
-    const result = await safeRequest(
-      '/api/reorders',
-      { headers: getAuthHeaders() },
-      () => localStore.getOrders()
-    );
-    return Array.isArray(result) ? result : ((result as any).orders || []);
+    const data = await request<{ orders: ReorderOrder[] }>('/api/reorders', {
+      headers: getAuthHeaders()
+    });
+    return data.orders || [];
   },
 
   async updateReorderStatus(id: string, status: string): Promise<void> {
-    await safeRequest(
-      `/api/reorders/${id}/status`,
-      {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ status })
+    await request<void>(`/api/reorders/${id}/status`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status })
+    });
+  },
+
+  // Profile & Password Management
+  async uploadImage(file: File): Promise<{ success: boolean; imageUrl: string }> {
+    const formData = new FormData();
+    formData.append('image', file);
+    const token = localStorage.getItem('robopart_token');
+    const res = await fetch(`${API_BASE}/api/upload`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      () => localStore.updateOrderStatus(id, status as any)
-    );
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(err.error || 'Failed to upload image');
+    }
+    return res.json();
+  },
+
+  async updateProfile(updates: { name: string; email: string; department?: string; avatar?: string }): Promise<User> {
+    const data = await request<{ success: boolean; user: User; message: string }>('/api/auth/profile', {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return data.user;
+  },
+
+  async changePassword(passwords: { currentPassword: string; newPassword: string }): Promise<void> {
+    await request<{ success: boolean; message: string }>('/api/auth/change-password', {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(passwords)
+    });
   },
 
   // Users Management
   async getUsers(): Promise<User[]> {
-    const result = await safeRequest(
-      '/api/users',
-      { headers: getAuthHeaders() },
-      () => localStore.getUsers()
-    );
-    return Array.isArray(result) ? result : ((result as any).users || []);
+    const data = await request<{ users: User[] }>('/api/users', {
+      headers: getAuthHeaders()
+    });
+    return data.users || [];
   },
 
   async createUser(user: Partial<User> & { password?: string }): Promise<User> {
-    const result = await safeRequest(
-      '/api/users',
-      {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(user)
-      },
-      () => localStore.createUser(user)
-    );
-    return (result as any).user || result;
+    const data = await request<{ user: User }>('/api/users', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(user)
+    });
+    return data.user;
   },
 
   async updateUser(id: string, user: Partial<User>): Promise<User> {
-    const result = await safeRequest(
-      `/api/users/${id}`,
-      {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(user)
-      },
-      () => localStore.updateUser(id, user)
-    );
-    return (result as any).user || result;
+    const data = await request<{ user: User }>(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(user)
+    });
+    return data.user;
   },
 
   async deleteUser(id: string): Promise<void> {
-    await safeRequest(
-      `/api/users/${id}`,
-      {
-        method: 'DELETE',
-        headers: getAuthHeaders()
-      },
-      () => localStore.deleteUser(id)
-    );
+    await request<void>(`/api/users/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
   }
 };
 
@@ -260,39 +311,33 @@ export const api = {
 // EXPORT UTILITIES (CSV, EXCEL, PDF)
 // ----------------------------------------------------
 
-export function exportToCSV(parts: SparePart[], filename = 'toprun-inventory.csv') {
+export function exportToCSV(parts: SparePart[], filename = 'inventory-items.csv') {
   const headers = [
-    'Part Number',
-    'Part Name',
+    'Item Number',
+    'Item Name',
+    'Description',
     'Category',
-    'Robot Model',
-    'Stock Left',
-    'Consumed',
-    'Need To Order',
+    'Location',
+    'Current Stock',
     'Min Threshold',
-    'Unit Cost (INR)',
+    'Unit Price (INR)',
     'Total Stock Value (INR)',
     'Status',
-    'Location',
-    'Supplier',
-    'Lead Time (Days)'
+    'Last Updated'
   ];
 
   const rows = parts.map(p => [
     `"${p.partNumber}"`,
     `"${p.name.replace(/"/g, '""')}"`,
+    `"${(p.description || '').replace(/"/g, '""')}"`,
     `"${p.category}"`,
-    `"${p.robotModel}"`,
+    `"${p.location}"`,
     p.stockLeft,
-    p.consumed,
-    p.needToOrder,
     p.minThreshold,
     p.unitCost.toFixed(2),
     (p.stockLeft * p.unitCost).toFixed(2),
     `"${p.status}"`,
-    `"${p.location}"`,
-    `"${p.supplier}"`,
-    p.leadTimeDays
+    `"${p.lastUpdated}"`
   ]);
 
   const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -305,22 +350,19 @@ export function exportToCSV(parts: SparePart[], filename = 'toprun-inventory.csv
   document.body.removeChild(link);
 }
 
-export function exportToExcel(parts: SparePart[], filename = 'toprun-inventory.xlsx') {
+export function exportToExcel(parts: SparePart[], filename = 'inventory-items.xlsx') {
   const data = parts.map(p => ({
-    'Part Number': p.partNumber,
-    'Name': p.name,
+    'Item Number': p.partNumber,
+    'Item Name': p.name,
+    'Description': p.description || '',
     'Category': p.category,
-    'Robot Model': p.robotModel,
-    'Stock Left': p.stockLeft,
-    'Consumed': p.consumed,
-    'Need To Order': p.needToOrder,
+    'Location': p.location,
+    'Current Stock': p.stockLeft,
     'Min Threshold': p.minThreshold,
-    'Unit Cost (INR)': p.unitCost,
+    'Unit Price (INR)': p.unitCost,
     'Total Value (INR)': Number((p.stockLeft * p.unitCost).toFixed(2)),
     'Status': p.status.replace('_', ' ').toUpperCase(),
-    'Location': p.location,
-    'Supplier': p.supplier,
-    'Lead Time (Days)': p.leadTimeDays
+    'Last Updated': p.lastUpdated
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);
@@ -329,39 +371,35 @@ export function exportToExcel(parts: SparePart[], filename = 'toprun-inventory.x
   XLSX.writeFile(workbook, filename);
 }
 
-export function exportToPDF(parts: SparePart[], filename = 'toprun-inventory-report.pdf') {
+export function exportToPDF(parts: SparePart[], filename = 'inventory-items-report.pdf') {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
   // Header banner
-  doc.setFillColor(10, 37, 122); // Toprun Navy #0A257A
+  doc.setFillColor(10, 37, 122);
   doc.rect(0, 0, 297, 24, 'F');
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text('Toprun - Inventory Items Report', 14, 15);
+  doc.text('Inventory Items Report', 14, 15);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.text(`Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 220, 15);
 
   // Summary Metrics Banner
-  doc.setFillColor(241, 245, 249); // Slate 100
+  doc.setFillColor(241, 245, 249);
   doc.rect(14, 28, 269, 16, 'F');
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
 
   const totalStock = parts.reduce((acc, p) => acc + p.stockLeft, 0);
-  const totalConsumed = parts.reduce((acc, p) => acc + p.consumed, 0);
-  const totalNeedOrder = parts.reduce((acc, p) => acc + p.needToOrder, 0);
   const totalValuation = parts.reduce((acc, p) => acc + (p.stockLeft * p.unitCost), 0);
 
-  doc.text(`Total Parts: ${parts.length}`, 20, 38);
-  doc.text(`In-Stock Units: ${totalStock}`, 80, 38);
-  doc.text(`Consumed Units: ${totalConsumed}`, 145, 38);
-  doc.text(`Need to Order: ${totalNeedOrder}`, 205, 38);
-  doc.text(`Valuation: INR ${totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 245, 38);
+  doc.text(`Total Items: ${parts.length}`, 20, 38);
+  doc.text(`Total Stock Units: ${totalStock}`, 90, 38);
+  doc.text(`Total Valuation: INR ${totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 180, 38);
 
   // Table Headers
   const startY = 52;
@@ -371,14 +409,13 @@ export function exportToPDF(parts: SparePart[], filename = 'toprun-inventory-rep
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'bold');
 
-  doc.text('Part SKU', 16, startY + 1);
-  doc.text('Part Name', 52, startY + 1);
-  doc.text('Category', 118, startY + 1);
-  doc.text('Robot Model', 162, startY + 1);
-  doc.text('Stock', 205, startY + 1);
-  doc.text('Consumed', 222, startY + 1);
-  doc.text('Need Order', 242, startY + 1);
-  doc.text('Unit (INR)', 265, startY + 1);
+  doc.text('Item Number', 16, startY + 1);
+  doc.text('Item Name', 56, startY + 1);
+  doc.text('Category', 125, startY + 1);
+  doc.text('Location', 170, startY + 1);
+  doc.text('Min Thresh', 215, startY + 1);
+  doc.text('Stock', 242, startY + 1);
+  doc.text('Unit Price', 265, startY + 1);
 
   // Rows
   let curY = startY + 7;
@@ -397,7 +434,6 @@ export function exportToPDF(parts: SparePart[], filename = 'toprun-inventory-rep
       doc.rect(14, curY - 3.5, 269, 7, 'F');
     }
 
-    // Color code critical / low stock
     if (p.status === 'critical') {
       doc.setTextColor(220, 38, 38);
     } else if (p.status === 'low_stock') {
@@ -407,12 +443,11 @@ export function exportToPDF(parts: SparePart[], filename = 'toprun-inventory-rep
     }
 
     doc.text(p.partNumber.substring(0, 18), 16, curY + 1);
-    doc.text(p.name.substring(0, 34), 52, curY + 1);
-    doc.text(p.category.substring(0, 24), 118, curY + 1);
-    doc.text(p.robotModel.substring(0, 22), 162, curY + 1);
-    doc.text(String(p.stockLeft), 208, curY + 1);
-    doc.text(String(p.consumed), 226, curY + 1);
-    doc.text(String(p.needToOrder), 246, curY + 1);
+    doc.text(p.name.substring(0, 34), 56, curY + 1);
+    doc.text(p.category.substring(0, 24), 125, curY + 1);
+    doc.text(p.location.substring(0, 24), 170, curY + 1);
+    doc.text(String(p.minThreshold), 220, curY + 1);
+    doc.text(String(p.stockLeft), 246, curY + 1);
     doc.text(`INR ${p.unitCost.toFixed(2)}`, 265, curY + 1);
 
     curY += 7;
@@ -427,21 +462,20 @@ export function exportToPDF(parts: SparePart[], filename = 'toprun-inventory-rep
 
 export function exportPartHistoryToCSV(part: SparePart, logs: InventoryLog[]) {
   const filename = `${part.partNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}_history.csv`;
-  const headers = ['Log ID', 'Timestamp', 'Event Type', 'Quantity Changed', 'Unit', 'Performed By', 'Audit Notes'];
+  const headers = ['Log ID', 'Timestamp', 'Event Type', 'Quantity Changed', 'Performed By', 'Audit Notes'];
   
   const rows = logs.map(l => [
     `"${l.id}"`,
     `"${new Date(l.timestamp).toLocaleString()}"`,
     `"${l.type.toUpperCase()}"`,
     l.quantity,
-    `"${part.unit || 'pcs'}"`,
     `"${l.performedBy.replace(/"/g, '""')}"`,
     `"${(l.notes || '').replace(/"/g, '""')}"`
   ]);
 
   const headerInfo = [
-    `"Part History Audit Trail: ${part.partNumber} - ${part.name.replace(/"/g, '""')}"`,
-    `"Category: ${part.category} | Robot Model: ${part.robotModel} | Current Stock: ${part.stockLeft} ${part.unit || 'pcs'}"`,
+    `"Item History Audit Trail: ${part.partNumber} - ${part.name.replace(/"/g, '""')}"`,
+    `"Category: ${part.category} | Location: ${part.location} | Current Stock: ${part.stockLeft}"`,
     ''
   ];
 
@@ -462,7 +496,6 @@ export function exportPartHistoryToExcel(part: SparePart, logs: InventoryLog[]) 
     'Date & Time': new Date(l.timestamp).toLocaleString(),
     'Event Type': l.type.toUpperCase(),
     'Quantity Changed': l.quantity,
-    'Unit': part.unit || 'pcs',
     'Performed By': l.performedBy,
     'Notes / Details': l.notes || ''
   }));
@@ -498,12 +531,12 @@ export function exportPartHistoryToPDF(part: SparePart, logs: InventoryLog[]) {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`Robot Model: ${part.robotModel}`, 18, 40);
+  doc.text(`Location: ${part.location}`, 18, 40);
   doc.text(`Category: ${part.category}`, 18, 46);
-  doc.text(`Current Stock: ${part.stockLeft} ${part.unit || 'pcs'}`, 18, 52);
+  doc.text(`Current Stock: ${part.stockLeft}`, 18, 52);
 
-  doc.text(`Min Threshold: ${part.minThreshold} ${part.unit || 'pcs'}`, 110, 40);
-  doc.text(`Unit Cost: INR ${part.unitCost.toFixed(2)}`, 110, 46);
+  doc.text(`Min Threshold: ${part.minThreshold}`, 110, 40);
+  doc.text(`Unit Price: INR ${part.unitCost.toFixed(2)}`, 110, 46);
   doc.text(`Total Stock Value: INR ${(part.stockLeft * part.unitCost).toFixed(2)}`, 110, 52);
 
   // Table Headers
@@ -541,7 +574,6 @@ export function exportPartHistoryToPDF(part: SparePart, logs: InventoryLog[]) {
         doc.rect(14, curY - 3, 182, 6, 'F');
       }
 
-      // Color code event type
       if (l.type === 'consumed') {
         doc.setTextColor(220, 38, 38);
       } else if (l.type === 'restocked') {
@@ -554,7 +586,7 @@ export function exportPartHistoryToPDF(part: SparePart, logs: InventoryLog[]) {
 
       doc.text(new Date(l.timestamp).toLocaleDateString() + ' ' + new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 16, curY + 1);
       doc.text(l.type.toUpperCase(), 52, curY + 1);
-      doc.text(`${l.quantity} ${part.unit || 'pcs'}`, 78, curY + 1);
+      doc.text(`${l.quantity}`, 78, curY + 1);
       
       doc.setTextColor(30, 41, 59);
       doc.text(l.performedBy.substring(0, 24), 96, curY + 1);

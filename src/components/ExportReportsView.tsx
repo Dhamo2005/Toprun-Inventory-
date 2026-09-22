@@ -30,8 +30,7 @@ export const ExportReportsView: React.FC<ExportReportsViewProps> = ({ parts }) =
   });
 
   const totalStock = filteredParts.reduce((acc, p) => acc + p.stockLeft, 0);
-  const totalConsumed = filteredParts.reduce((acc, p) => acc + p.consumed, 0);
-  const totalNeedOrder = filteredParts.reduce((acc, p) => acc + p.needToOrder, 0);
+  const lowStockCount = filteredParts.filter(p => p.stockLeft <= p.minThreshold).length;
   const totalValuation = filteredParts.reduce((acc, p) => acc + (p.stockLeft * p.unitCost), 0);
 
   const triggerDownload = (type: 'csv' | 'excel' | 'pdf') => {
@@ -190,8 +189,8 @@ export const ExportReportsView: React.FC<ExportReportsViewProps> = ({ parts }) =
               <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{totalStock}</p>
             </div>
             <div>
-              <span className="text-[10px] text-slate-500 uppercase">Need to Order</span>
-              <p className="text-base font-bold text-rose-600 dark:text-rose-400">{totalNeedOrder}</p>
+              <span className="text-[10px] text-slate-500 uppercase">Low Stock Items</span>
+              <p className="text-base font-bold text-amber-600 dark:text-amber-400">{lowStockCount}</p>
             </div>
             <div>
               <span className="text-[10px] text-slate-500 uppercase">Total Value</span>

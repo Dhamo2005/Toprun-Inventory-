@@ -10,10 +10,11 @@ import {
   FileSpreadsheet, 
   Database,
   Lock,
-  X
+  X,
+  UserCircle
 } from 'lucide-react';
 
-export type ActiveTab = 'catalog' | 'stock-detail' | 'dashboard' | 'reorders' | 'alerts' | 'logs' | 'users' | 'exports';
+export type ActiveTab = 'catalog' | 'stock-detail' | 'dashboard' | 'reorders' | 'alerts' | 'logs' | 'users' | 'exports' | 'profile';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -32,20 +33,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   needToOrderCount,
   activeAlertsCount,
 }) => {
-  const { permissions, role } = useAuth();
+  const { user, permissions, role } = useAuth();
 
   const inventoryNavItems = [
-    {
-      id: 'catalog' as ActiveTab,
-      label: 'Items',
-      icon: Boxes,
-      badge: null,
-      enabled: true,
-    },
     {
       id: 'dashboard' as ActiveTab,
       label: 'Dashboard',
       icon: BarChart3,
+      badge: null,
+      enabled: true,
+    },
+    {
+      id: 'catalog' as ActiveTab,
+      label: 'Items',
+      icon: Boxes,
       badge: null,
       enabled: true,
     },
@@ -92,6 +93,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
       enabled: true,
     },
+    {
+      id: 'profile' as ActiveTab,
+      label: 'My Profile & Security',
+      icon: UserCircle,
+      badge: null,
+      enabled: true,
+    },
   ];
 
   return (
@@ -128,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div>
               <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase dark:text-slate-500">
-                Inventory
+                Operations
               </p>
               <nav className="mt-2 space-y-1">
                 {inventoryNavItems.map((item) => {

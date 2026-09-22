@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { SparePart, PartCategory } from '../types.ts';
 import { useAuth } from '../context/AuthContext.tsx';
+import { PartImage } from './PartImage.tsx';
 import { 
   Search, 
   Filter, 
@@ -55,21 +56,21 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
   // Filters & State
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedRobotModel, setSelectedRobotModel] = useState<string>('all');
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [onlyNeedOrder, setOnlyNeedOrder] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<'stockLeft' | 'consumed' | 'needToOrder' | 'name' | 'unitCost'>('stockLeft');
+  const [sortBy, setSortBy] = useState<'stockLeft' | 'minThreshold' | 'name' | 'unitCost'>('stockLeft');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
-  // Available unique categories & robot models from current parts
+  // Available unique categories & locations from current parts
   const categories = useMemo(() => {
-    const set = new Set(parts.map(p => p.category));
+    const set = new Set(parts.map(p => p.category).filter(Boolean));
     return Array.from(set);
   }, [parts]);
 
-  const robotModels = useMemo(() => {
-    const set = new Set(parts.map(p => p.robotModel));
+  const locations = useMemo(() => {
+    const set = new Set(parts.map(p => p.location).filter(Boolean));
     return Array.from(set);
   }, [parts]);
 
@@ -82,9 +83,9 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
           const matches =
             p.name.toLowerCase().includes(s) ||
             p.partNumber.toLowerCase().includes(s) ||
-            p.robotModel.toLowerCase().includes(s) ||
-            p.supplier.toLowerCase().includes(s) ||
-            p.location.toLowerCase().includes(s);
+            (p.description && p.description.toLowerCase().includes(s)) ||
+            (p.location && p.location.toLowerCase().includes(s)) ||
+            (p.category && p.category.toLowerCase().includes(s));
           if (!matches) return false;
         }
 
@@ -92,7 +93,7 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
           return false;
         }
 
-        if (selectedRobotModel !== 'all' && p.robotModel !== selectedRobotModel) {
+        if (selectedLocation !== 'all' && p.location !== selectedLocation) {
           return false;
         }
 
@@ -100,7 +101,7 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
           return false;
         }
 
-        if (onlyNeedOrder && p.needToOrder <= 0) {
+        if (onlyNeedOrder && p.stockLeft > p.minThreshold) {
           return false;
         }
 
@@ -118,7 +119,7 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
 
         return sortOrder === 'asc' ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
       });
-  }, [parts, search, selectedCategory, selectedRobotModel, statusFilter, onlyNeedOrder, sortBy, sortOrder]);
+  }, [parts, search, selectedCategory, selectedLocation, statusFilter, onlyNeedOrder, sortBy, sortOrder]);
 
   const statusBadge = (status: string, stock: number, minThreshold: number) => {
     switch (status) {
@@ -229,17 +230,17 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
             </select>
           </div>
 
-          {/* Robot Model Dropdown */}
+          {/* Location Dropdown */}
           <div>
             <select
-              id="filter-robot-select"
-              value={selectedRobotModel}
-              onChange={(e) => setSelectedRobotModel(e.target.value)}
+              id="filter-location-select"
+              value={selectedLocation}
+              onChange={(e) => setSelectedLocation(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800/60 dark:text-white"
             >
-              <option value="all">All Robot Platforms</option>
-              {robotModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
+              <option value="all">All Storage Locations</option>
+              {locations.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
               ))}
             </select>
           </div>
@@ -253,10 +254,9 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2 px-3 text-xs text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800/60 dark:text-white"
             >
               <option value="stockLeft">Sort: Stock Left</option>
-              <option value="consumed">Sort: Consumed Quantity</option>
-              <option value="needToOrder">Sort: Need To Order</option>
+              <option value="minThreshold">Sort: Min Threshold</option>
               <option value="unitCost">Sort: Unit Price</option>
-              <option value="name">Sort: Part Name</option>
+              <option value="name">Sort: Item Name</option>
             </select>
             <button
               id="sort-order-toggle"
@@ -343,7 +343,7 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredParts.map((part) => {
             const stockPercent = Math.min(100, Math.round((part.stockLeft / (part.minThreshold * 2)) * 100));
-            const isNeedOrder = part.needToOrder > 0;
+            const isNeedOrder = part.stockLeft <= part.minThreshold;
 
             return (
               <div
@@ -354,12 +354,10 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
                 <div>
                   {/* Card Image & Status Overlay */}
                   <div className="relative aspect-video w-full overflow-hidden bg-slate-100 dark:bg-slate-800">
-                    <img
+                    <PartImage
                       src={part.imageUrl}
                       alt={part.name}
-                      referrerPolicy="no-referrer"
                       className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      loading="lazy"
                     />
                     <div className="absolute top-2.5 left-2.5">
                       {statusBadge(part.status, part.stockLeft, part.minThreshold)}
@@ -371,13 +369,13 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
 
                   {/* Card Body */}
                   <div className="p-4">
-                    {/* Robot Model & SKU Header */}
+                    {/* Item Number & Category Header */}
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">
                         {part.partNumber}
                       </span>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        {part.robotModel}
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {part.category || 'General'}
                       </span>
                     </div>
 
@@ -388,49 +386,30 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
                       {part.name}
                     </h3>
 
-                    <p className="mt-1 text-[11px] text-slate-500 line-clamp-2 dark:text-slate-400">
-                      {part.description}
+                    <p className="mt-1 text-[11px] text-slate-500 line-clamp-2 dark:text-slate-400 min-h-[32px]">
+                      {part.description || 'No description provided.'}
                     </p>
 
-                    {/* Stock Metrics Visual Breakdown: Left, Consumed, Need to Order */}
-                    <div className="mt-3.5 rounded-xl border border-slate-100 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-800/50">
-                      <div className="grid grid-cols-3 gap-1 text-center divide-x divide-slate-200 dark:divide-slate-700">
+                    {/* Stock Metrics Visual Breakdown: Stock Left & Min Threshold */}
+                    <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-800/50">
+                      <div className="grid grid-cols-2 gap-2 text-center divide-x divide-slate-200 dark:divide-slate-700">
                         {/* 1. Left in Stock */}
                         <div className="px-1">
                           <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
-                            Stock
+                            Stock Left
                           </p>
                           <p className={`text-base font-extrabold ${part.stockLeft === 0 ? 'text-rose-600' : part.stockLeft <= part.minThreshold ? 'text-amber-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                            {part.stockLeft} <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400">{part.unit || 'pcs'}</span>
-                          </p>
-                          <p className="text-[9px] text-slate-400">
-                            min: {part.minThreshold}
+                            {part.stockLeft}
                           </p>
                         </div>
 
-                        {/* 2. Consumed */}
+                        {/* 2. Minimum Threshold */}
                         <div className="px-1">
                           <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
-                            Used
+                            Min Threshold
                           </p>
-                          <p className="text-base font-extrabold text-slate-800 dark:text-white">
-                            {part.consumed}
-                          </p>
-                          <p className="text-[9px] text-slate-400">
-                            total
-                          </p>
-                        </div>
-
-                        {/* 3. Need to Order */}
-                        <div className="px-1">
-                          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">
-                            To Order
-                          </p>
-                          <p className={`text-base font-extrabold ${isNeedOrder ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
-                            {part.needToOrder > 0 ? `+${part.needToOrder}` : '0'}
-                          </p>
-                          <p className="text-[9px] text-slate-400">
-                            {isNeedOrder ? 'Replenish' : 'Balanced'}
+                          <p className="text-base font-extrabold text-slate-700 dark:text-slate-300">
+                            {part.minThreshold}
                           </p>
                         </div>
                       </div>
@@ -452,16 +431,17 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
                       </div>
                     </div>
 
-                    {/* Metadata chips: Location & Supplier */}
+                    {/* Location chip */}
                     <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <div className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3 text-slate-400" />
-                        <span className="truncate max-w-[110px]">{part.location}</span>
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                        <span className="truncate max-w-[170px] font-medium text-slate-700 dark:text-slate-300">
+                          {part.location || 'Unassigned Location'}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Building2 className="h-3 w-3 text-slate-400" />
-                        <span className="truncate max-w-[90px]">{part.supplier}</span>
-                      </div>
+                      <span className="text-[10px] font-medium text-slate-400">
+                        ₹{(part.stockLeft * part.unitCost).toLocaleString('en-IN')} total
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -562,14 +542,13 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
             <table className="w-full min-w-[720px] text-left text-xs text-slate-600 dark:text-slate-300">
               <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-400">
                 <tr>
-                  <th className="py-3.5 px-4">Part / Number</th>
-                  <th className="py-3.5 px-3">Robot Model</th>
+                  <th className="py-3.5 px-4">Item / Number</th>
+                  <th className="py-3.5 px-3">Location</th>
                   <th className="py-3.5 px-3">Category</th>
                   <th className="py-3.5 px-3 text-center">Stock Left</th>
-                  <th className="py-3.5 px-3 text-center">Used</th>
-                  <th className="py-3.5 px-3 text-center">To Order</th>
-                  <th className="py-3.5 px-3">Status</th>
+                  <th className="py-3.5 px-3 text-center">Min Threshold</th>
                   <th className="py-3.5 px-3">Unit Price (₹)</th>
+                  <th className="py-3.5 px-3">Status</th>
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -596,29 +575,26 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-3">{part.robotModel}</td>
-                    <td className="py-3 px-3">{part.category}</td>
+                    <td className="py-3 px-3 font-medium text-slate-700 dark:text-slate-300">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                        <span>{part.location || '—'}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-slate-600 dark:text-slate-400">{part.category || 'General'}</td>
                     <td className="py-3 px-3 text-center font-bold">
                       <span className={part.stockLeft === 0 ? 'text-rose-600' : part.stockLeft <= part.minThreshold ? 'text-amber-600' : 'text-emerald-600 dark:text-emerald-400'}>
-                        {part.stockLeft} <span className="text-[10px] font-normal text-slate-500">{part.unit || 'pcs'}</span>
+                        {part.stockLeft}
                       </span>
-                      <span className="text-[10px] text-slate-400 block font-normal">min {part.minThreshold}</span>
                     </td>
-                    <td className="py-3 px-3 text-center font-semibold text-slate-800 dark:text-white">
-                      {part.consumed}
-                    </td>
-                    <td className="py-3 px-3 text-center font-bold">
-                      {part.needToOrder > 0 ? (
-                        <span className="text-rose-600 dark:text-rose-400">+{part.needToOrder}</span>
-                      ) : (
-                        <span className="text-slate-400">0</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3">
-                      {statusBadge(part.status, part.stockLeft, part.minThreshold)}
+                    <td className="py-3 px-3 text-center font-semibold text-slate-700 dark:text-slate-300">
+                      {part.minThreshold}
                     </td>
                     <td className="py-3 px-3 font-semibold text-slate-900 dark:text-white">
                       ₹{part.unitCost.toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-3 px-3">
+                      {statusBadge(part.status, part.stockLeft, part.minThreshold)}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -680,7 +656,7 @@ export const PartsCatalog: React.FC<PartsCatalogProps> = ({
             onClick={() => {
               setSearch('');
               setSelectedCategory('all');
-              setSelectedRobotModel('all');
+              setSelectedLocation('all');
               setStatusFilter('all');
               setOnlyNeedOrder(false);
             }}

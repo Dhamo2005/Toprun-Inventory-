@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types.ts';
 import { useAuth } from '../context/AuthContext.tsx';
+import { UserAvatar } from './UserAvatar.tsx';
 import { 
   Users, 
   UserPlus, 
@@ -127,10 +128,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <img
+                        <UserAvatar
                           src={u.avatar}
-                          alt={u.name}
-                          className="h-8 w-8 rounded-full object-cover border border-slate-200 dark:border-slate-700"
+                          name={u.name}
+                          size="sm"
                         />
                         <div>
                           <p className="font-bold text-slate-900 dark:text-white">

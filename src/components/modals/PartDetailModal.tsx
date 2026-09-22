@@ -1,6 +1,7 @@
 import React from 'react';
 import { SparePart } from '../../types.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
+import { PartImage } from '../PartImage.tsx';
 import { 
   X, 
   MapPin, 
@@ -50,7 +51,7 @@ export const PartDetailModal: React.FC<PartDetailModalProps> = ({
               {part.partNumber}
             </span>
             <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {part.robotModel}
+              {part.category || 'General'}
             </span>
           </div>
           <button
@@ -64,7 +65,7 @@ export const PartDetailModal: React.FC<PartDetailModalProps> = ({
         <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
           {/* Hardware Photo */}
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-800">
-            <img
+            <PartImage
               src={part.imageUrl}
               alt={part.name}
               className="h-56 w-full object-cover"
@@ -75,21 +76,34 @@ export const PartDetailModal: React.FC<PartDetailModalProps> = ({
           <div className="flex flex-col justify-between">
             <div>
               <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider dark:text-indigo-400">
-                {part.category}
+                {part.category || 'General'}
               </span>
               <h2 className="mt-1 text-base font-bold text-slate-900 dark:text-white">
                 {part.name}
               </h2>
               <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                {part.description}
+                {part.description || 'No description available.'}
               </p>
             </div>
 
             <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-800/60 space-y-2">
               <div className="flex items-center justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Location:</span>
+                <span className="font-medium text-slate-900 dark:text-white flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5 text-indigo-500" />
+                  {part.location || 'Unassigned'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Unit Price:</span>
                 <span className="font-bold text-slate-900 dark:text-white">
                   ₹{part.unitCost.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Minimum Threshold:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {part.minThreshold} units
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -98,52 +112,30 @@ export const PartDetailModal: React.FC<PartDetailModalProps> = ({
                   ₹{(part.stockLeft * part.unitCost).toLocaleString('en-IN')}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Supplier:</span>
-                <span className="font-medium text-slate-800 dark:text-slate-200">{part.supplier}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Delivery Time:</span>
-                <span>{part.leadTimeDays} days</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Location:</span>
-                <span className="font-mono">{part.location}</span>
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Triple Stock Metric Panel: Left, Consumed, Need to Order */}
+        {/* Stock Status Panel */}
         <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-800/40">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            Stock and Usage
+            Stock Levels
           </h4>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-center divide-x divide-slate-200 dark:divide-slate-700">
+          <div className="mt-3 grid grid-cols-2 gap-3 text-center divide-x divide-slate-200 dark:divide-slate-700">
             <div>
-              <span className="text-xs font-semibold text-slate-500">Left in Stock</span>
+              <span className="text-xs font-semibold text-slate-500">Current Stock</span>
               <p className={`text-2xl font-extrabold mt-1 ${part.stockLeft === 0 ? 'text-rose-600' : part.stockLeft <= part.minThreshold ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {part.stockLeft}
               </p>
-              <span className="text-[10px] text-slate-400">Min Limit: {part.minThreshold}</span>
+              <span className="text-[10px] text-slate-400">units available</span>
             </div>
 
             <div>
-              <span className="text-xs font-semibold text-slate-500">Total Used</span>
-              <p className="text-2xl font-extrabold mt-1 text-slate-900 dark:text-white">
-                {part.consumed}
+              <span className="text-xs font-semibold text-slate-500">Minimum Limit</span>
+              <p className="text-2xl font-extrabold mt-1 text-slate-800 dark:text-slate-200">
+                {part.minThreshold}
               </p>
-              <span className="text-[10px] text-slate-400">Used in repairs</span>
-            </div>
-
-            <div>
-              <span className="text-xs font-semibold text-slate-500">Need to Order</span>
-              <p className={`text-2xl font-extrabold mt-1 ${part.needToOrder > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
-                {part.needToOrder > 0 ? `+${part.needToOrder}` : '0'}
-              </p>
-              <span className="text-[10px] text-slate-400">
-                {part.needToOrder > 0 ? 'Reorder needed' : 'Stock is OK'}
-              </span>
+              <span className="text-[10px] text-slate-400">reorder threshold</span>
             </div>
           </div>
 

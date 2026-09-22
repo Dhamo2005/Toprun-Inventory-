@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { initDatabase } from './server/db.ts';
@@ -12,9 +13,18 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Body parser middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Ensure server uploads directory exists
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  // Body parser middleware (supports base64 image fallbacks up to 25MB)
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+  // Statically serve server-stored part images
+  app.use('/uploads', express.static(uploadsDir));
 
   // Initialize SQLite database
   console.log('Initializing SQLite database engine...');

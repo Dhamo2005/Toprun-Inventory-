@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useTheme } from '../context/ThemeContext.tsx';
 import { ToprunLogo } from './ToprunLogo.tsx';
+import { UserAvatar } from './UserAvatar.tsx';
 import { 
   Lock, 
   Mail, 
@@ -38,7 +39,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     role: 'admin',
     roleTitle: 'Admin',
     canDo: 'Can do everything: add parts, update stock, make orders, and manage users.',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+    avatar: ''
   },
   {
     name: 'Marcus Reyes',
@@ -47,7 +48,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     role: 'manager',
     roleTitle: 'Manager',
     canDo: 'Can add parts, update stock details, and create purchase orders.',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+    avatar: ''
   },
   {
     name: 'Alex Mercer',
@@ -56,7 +57,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     role: 'technician',
     roleTitle: 'Technician',
     canDo: 'Can record parts used for repairs and check stock levels.',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80'
+    avatar: ''
   },
   {
     name: 'Sarah Jenkins',
@@ -65,7 +66,7 @@ const TEST_ACCOUNTS: TestAccount[] = [
     role: 'viewer',
     roleTitle: 'Viewer',
     canDo: 'Can only view items and download reports (read only).',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80'
+    avatar: ''
   }
 ];
 
@@ -134,22 +135,22 @@ export const ErpLoginScreen: React.FC = () => {
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
       {/* Top Bar */}
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-2xs">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => { window.location.href = '/'; }}
+          aria-label="Go to homepage"
+          className="flex items-center gap-3 text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/40 rounded-xl p-1 -m-1 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+        >
           <ToprunLogo className="h-10 w-10 shrink-0" />
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-900 dark:text-white text-base sm:text-lg">
-                Toprun
-              </span>
-              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                Inventory
-              </span>
-            </div>
+            <span className="font-bold text-slate-900 dark:text-white text-base sm:text-lg block">
+              Toprun
+            </span>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Inventory & Items Management
+              Robotics & Operations Platform
             </p>
           </div>
-        </div>
+        </button>
 
         <div className="flex items-center gap-2.5">
           {/* Dev Mode toggle button */}
@@ -318,10 +319,10 @@ export const ErpLoginScreen: React.FC = () => {
                     >
                       <div>
                         <div className="flex items-center gap-2.5">
-                          <img
+                          <UserAvatar
                             src={acc.avatar}
-                            alt={acc.name}
-                            className="h-9 w-9 rounded-full object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                            name={acc.name}
+                            size="sm"
                           />
                           <div className="min-w-0">
                             <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">

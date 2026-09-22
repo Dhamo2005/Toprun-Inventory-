@@ -84,7 +84,7 @@ export const RestockModal: React.FC<RestockModalProps> = ({
             <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
               <span className="font-mono text-indigo-600 dark:text-indigo-400">{part.partNumber}</span>
               <span>&bull;</span>
-              <span>{part.supplier}</span>
+              <span>{part.location || 'General'}</span>
             </div>
           </div>
           <div className="text-right text-xs">

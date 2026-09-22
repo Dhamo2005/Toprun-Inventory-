@@ -7,17 +7,14 @@ describe('Inventory Export Utilities', () => {
       id: 'part_001',
       partNumber: 'HD-CSG-20-80',
       name: 'Harmonic Drive Gear Reducer',
+      categoryId: 'cat_1',
       category: 'Actuators & Motors',
-      robotModel: 'Universal Robots UR10e',
+      locationId: 'loc_1',
       description: 'Precision strain wave reducer for Joint 2.',
       imageUrl: 'https://example.com/gear.jpg',
       stockLeft: 2,
       minThreshold: 4,
-      consumed: 6,
-      needToOrder: 6,
       unitCost: 850.00,
-      supplier: 'Harmonic Drive Systems',
-      leadTimeDays: 14,
       location: 'Bay 2, Bin A-14',
       status: 'low_stock',
       lastUpdated: '2025-02-15T10:00:00Z'
@@ -26,17 +23,14 @@ describe('Inventory Export Utilities', () => {
       id: 'part_002',
       partNumber: 'INT-D435I-01',
       name: 'Intel RealSense D435i Camera',
+      categoryId: 'cat_2',
       category: 'Sensors & Vision',
-      robotModel: 'Boston Dynamics Spot',
+      locationId: 'loc_2',
       description: 'Depth sensing vision module.',
       imageUrl: 'https://example.com/camera.jpg',
       stockLeft: 12,
       minThreshold: 5,
-      consumed: 18,
-      needToOrder: 0,
       unitCost: 380.00,
-      supplier: 'Intel Vision Labs',
-      leadTimeDays: 5,
       location: 'Optics Cabinet 4',
       status: 'in_stock',
       lastUpdated: '2025-02-14T08:30:00Z'
@@ -66,7 +60,7 @@ describe('Inventory Export Utilities', () => {
   });
 
   it('filters parts by category and threshold criteria correctly', () => {
-    const needy = sampleParts.filter(p => p.needToOrder > 0);
+    const needy = sampleParts.filter(p => p.stockLeft <= p.minThreshold);
     expect(needy.length).toBe(1);
     expect(needy[0].partNumber).toBe('HD-CSG-20-80');
   });
