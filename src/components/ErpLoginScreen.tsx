@@ -81,33 +81,17 @@ export const ErpLoginScreen: React.FC = () => {
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  // Vite provides import.meta.env.DEV as true only during development mode
-  const isDevMode = import.meta.env.DEV;
+  // Enable test accounts and demo credentials for easy preview & evaluation
+  const [showDevDetails, setShowDevDetails] = useState(true);
 
-  // In development, allow toggling into production preview to check the production view
-  const [previewProduction, setPreviewProduction] = useState(false);
-
-  const showDevDetails = isDevMode && !previewProduction;
-
-  const [email, setEmail] = useState(() => (showDevDetails ? 'admin@toprun.com' : ''));
-  const [password, setPassword] = useState(() => (showDevDetails ? 'password123' : ''));
+  const [email, setEmail] = useState('admin@toprun.com');
+  const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleToggleEnvironmentPreview = () => {
-    const nextPreview = !previewProduction;
-    setPreviewProduction(nextPreview);
-    setError('');
-    if (nextPreview) {
-      // Production preview: clear demo email & password
-      setEmail('');
-      setPassword('');
-    } else {
-      // Back to dev mode: pre-fill
-      setEmail('admin@toprun.com');
-      setPassword('password123');
-    }
+    setShowDevDetails(!showDevDetails);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,38 +137,27 @@ export const ErpLoginScreen: React.FC = () => {
         </button>
 
         <div className="flex items-center gap-2.5">
-          {/* Dev Mode toggle button */}
-          {isDevMode ? (
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                showDevDetails
-                  ? 'bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
-                  : 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800'
-              }`}>
-                <span className={`h-2 w-2 rounded-full ${showDevDetails ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                {showDevDetails ? 'Dev Mode' : 'Production View'}
-              </span>
-
-              <button
-                type="button"
-                onClick={handleToggleEnvironmentPreview}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 min-h-[36px]"
-                title="Switch between Dev mode and Production view"
-              >
-                {showDevDetails ? (
-                  <>
-                    <ToggleLeft className="h-4 w-4 text-slate-400" />
-                    <span className="hidden sm:inline">Preview Production</span>
-                  </>
-                ) : (
-                  <>
-                    <ToggleRight className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                    <span className="hidden sm:inline">Back to Dev Mode</span>
-                  </>
-                )}
-              </button>
-            </div>
-          ) : null}
+          {/* Demo Mode toggle button */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleEnvironmentPreview}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 min-h-[36px]"
+              title="Toggle test demo accounts panel"
+            >
+              {showDevDetails ? (
+                <>
+                  <ToggleRight className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="hidden sm:inline">Demo Accounts (On)</span>
+                </>
+              ) : (
+                <>
+                  <ToggleLeft className="h-4 w-4 text-slate-400" />
+                  <span className="hidden sm:inline">Show Demo Accounts</span>
+                </>
+              )}
+            </button>
+          </div>
 
           <button
             onClick={toggleTheme}

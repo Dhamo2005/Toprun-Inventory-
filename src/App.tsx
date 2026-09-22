@@ -325,8 +325,13 @@ function MainAppContent() {
                 logs={logs}
                 parts={parts}
                 onNavigateToCatalog={() => setActiveTab('catalog')}
+                onNavigateToStockDetail={(partId?: string) => {
+                  if (partId) setSelectedStockPartId(partId);
+                  setActiveTab('stock-detail');
+                }}
                 onNavigateToReorders={() => setActiveTab('reorders')}
                 onNavigateToAlerts={() => setActiveTab('alerts')}
+                onNavigateToLogs={() => setActiveTab('logs')}
                 onResolveAlert={handleResolveAlert}
                 onReorderPart={(p) => handlePlaceReorder(p, Math.max(1, p.minThreshold - p.stockLeft + 5))}
               />

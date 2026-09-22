@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { DashboardStats, InventoryAlert, InventoryLog, SparePart } from '../types.ts';
 import { useAuth } from '../context/AuthContext.tsx';
+import { localStore } from '../lib/localStore.ts';
 import { 
   ResponsiveContainer, 
   BarChart, 
@@ -34,8 +35,10 @@ interface DashboardProps {
   logs: InventoryLog[];
   parts: SparePart[];
   onNavigateToCatalog: () => void;
+  onNavigateToStockDetail?: (partId?: string) => void;
   onNavigateToReorders: () => void;
   onNavigateToAlerts: () => void;
+  onNavigateToLogs?: () => void;
   onResolveAlert: (id: string) => void;
   onReorderPart: (part: SparePart) => void;
 }
@@ -47,27 +50,66 @@ const STATUS_COLORS: Record<string, string> = {
   reorder_placed: '#3b82f6', // blue
 };
 
+const CustomConsumptionTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const unitsItem = payload.find((p: any) => p.dataKey === 'units');
+    const costItem = payload.find((p: any) => p.dataKey === 'cost');
+
+    return (
+      <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 text-xs text-white shadow-xl backdrop-blur-xs min-w-[170px]">
+        <p className="font-bold text-slate-200 border-b border-slate-800 pb-1.5 mb-2">{label}</p>
+        <div className="space-y-1.5">
+          {unitsItem && (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                <span className="text-slate-300">Parts Used:</span>
+              </div>
+              <span className="font-semibold text-indigo-400">
+                {unitsItem.value} units
+              </span>
+            </div>
+          )}
+          {costItem && (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-sky-400" />
+                <span className="text-slate-300">Spend:</span>
+              </div>
+              <span className="font-semibold text-sky-400">
+                ₹{Number(costItem.value).toLocaleString('en-IN')}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
   alerts,
   logs,
   parts,
   onNavigateToCatalog,
+  onNavigateToStockDetail,
   onNavigateToReorders,
   onNavigateToAlerts,
+  onNavigateToLogs,
   onResolveAlert,
   onReorderPart
 }) => {
   const { permissions } = useAuth();
   const activeAlerts = alerts.filter(a => !a.isResolved);
 
-  if (!stats) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-      </div>
-    );
-  }
+  // Fallback to localStore stats if stats are loading or not yet provided, preventing infinite loading hang
+  const activeStats = useMemo(() => {
+    if (stats) return stats;
+    return localStore.getDashboardStats();
+  }, [stats]);
+  const statsData = stats || activeStats;
 
   // Find parts requiring attention (stock below or equal to minimum threshold)
   const reorderUrgentParts = parts.filter(p => p.stockLeft <= p.minThreshold).slice(0, 5);
@@ -96,87 +138,127 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Top Metric Cards */}
+      {/* Top Metric Cards - Interactive with Page Redirection */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {/* 1. Total Parts SKU */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        {/* 1. Total Parts SKU -> redirects to Catalog */}
+        <button
+          type="button"
+          onClick={onNavigateToCatalog}
+          className="text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+          title="Click to view all items in Catalog"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Items</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+            <span className="text-xs font-semibold text-slate-500 group-hover:text-indigo-600 dark:text-slate-400 dark:group-hover:text-indigo-400 transition-colors">
+              Total Items
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white dark:bg-indigo-950/60 dark:text-indigo-400 dark:group-hover:bg-indigo-500 dark:group-hover:text-white transition-colors">
               <Boxes className="h-4 w-4" />
             </div>
           </div>
           <p className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-white">
-            {stats.totalParts}
+            {statsData.totalParts}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            Catalog items
-          </p>
-        </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <span>Catalog items</span>
+            <ArrowRight className="h-3 w-3 text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all dark:text-slate-600" />
+          </div>
+        </button>
 
-        {/* 2. In-Stock Units */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        {/* 2. In-Stock Units -> redirects to Stock Detail */}
+        <button
+          type="button"
+          onClick={() => (onNavigateToStockDetail ? onNavigateToStockDetail() : onNavigateToCatalog())}
+          className="text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-700 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+          title="Click to view Stock Details & Movement"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Stock Left</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+            <span className="text-xs font-semibold text-slate-500 group-hover:text-emerald-600 dark:text-slate-400 dark:group-hover:text-emerald-400 transition-colors">
+              Stock Left
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white dark:bg-emerald-950/60 dark:text-emerald-400 dark:group-hover:bg-emerald-500 dark:group-hover:text-white transition-colors">
               <CheckCircle2 className="h-4 w-4" />
             </div>
           </div>
           <p className="mt-2 text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
-            {stats.totalStockLeft}
+            {statsData.totalStockLeft}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            Available units
-          </p>
-        </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <span>Available units</span>
+            <ArrowRight className="h-3 w-3 text-slate-300 group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all dark:text-slate-600" />
+          </div>
+        </button>
 
-        {/* 3. Total Consumed Units */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        {/* 3. Total Consumed Units -> redirects to Logs */}
+        <button
+          type="button"
+          onClick={() => (onNavigateToLogs ? onNavigateToLogs() : onNavigateToCatalog())}
+          className="text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-blue-700 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          title="Click to view Usage History & Logs"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Parts Used</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
+            <span className="text-xs font-semibold text-slate-500 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-400 transition-colors">
+              Parts Used
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white dark:bg-blue-950/60 dark:text-blue-400 dark:group-hover:bg-blue-500 dark:group-hover:text-white transition-colors">
               <TrendingUp className="h-4 w-4" />
             </div>
           </div>
           <p className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-white">
-            {stats.totalConsumed}
+            {statsData.totalConsumed}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            Used in robot repairs
-          </p>
-        </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <span>Used in robot repairs</span>
+            <ArrowRight className="h-3 w-3 text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all dark:text-slate-600" />
+          </div>
+        </button>
 
-        {/* 4. Critical & Low Stock Alerts */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        {/* 4. Critical & Low Stock Alerts -> redirects to Alerts */}
+        <button
+          type="button"
+          onClick={onNavigateToAlerts}
+          className="text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-rose-700 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-rose-500/40"
+          title="Click to view Alerts Center"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Low Stock Alerts</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
+            <span className="text-xs font-semibold text-slate-500 group-hover:text-rose-600 dark:text-slate-400 dark:group-hover:text-rose-400 transition-colors">
+              Low Stock Alerts
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white dark:bg-rose-950/60 dark:text-rose-400 dark:group-hover:bg-rose-500 dark:group-hover:text-white transition-colors">
               <AlertTriangle className="h-4 w-4" />
             </div>
           </div>
           <p className="mt-2 text-2xl font-extrabold text-rose-600 dark:text-rose-400">
-            {stats.criticalCount + stats.lowStockCount}
+            {statsData.criticalCount + statsData.lowStockCount}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            {stats.criticalCount} empty / {stats.lowStockCount} low
-          </p>
-        </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <span>{statsData.criticalCount} empty / {statsData.lowStockCount} low</span>
+            <ArrowRight className="h-3 w-3 text-slate-300 group-hover:text-rose-500 group-hover:translate-x-0.5 transition-all dark:text-slate-600" />
+          </div>
+        </button>
 
-        {/* 5. Inventory Valuation */}
-        <div className="col-span-2 sm:col-span-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        {/* 5. Inventory Valuation -> redirects to Reorders */}
+        <button
+          type="button"
+          onClick={onNavigateToReorders}
+          className="col-span-2 sm:col-span-1 text-left rounded-2xl border border-slate-200 bg-white p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-amber-700 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+          title="Click to view Orders & Reorder Center"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Stock Value</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+            <span className="text-xs font-semibold text-slate-500 group-hover:text-amber-600 dark:text-slate-400 dark:group-hover:text-amber-400 transition-colors">
+              Total Stock Value
+            </span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white dark:bg-amber-950/60 dark:text-amber-400 dark:group-hover:bg-amber-500 dark:group-hover:text-white transition-colors">
               <IndianRupee className="h-4 w-4" />
             </div>
           </div>
           <p className="mt-2 text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white truncate">
-            ₹{stats.totalInventoryValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            ₹{statsData.totalInventoryValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            {stats.pendingOrdersCount} orders placed
-          </p>
-        </div>
+          <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <span>{statsData.pendingOrdersCount} orders placed</span>
+            <ArrowRight className="h-3 w-3 text-slate-300 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all dark:text-slate-600" />
+          </div>
+        </button>
       </div>
 
       {/* Interactive Charts Row */}
@@ -192,11 +274,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 Comparison of active inventory vs replacement consumption volume
               </p>
             </div>
+            <button
+              onClick={onNavigateToCatalog}
+              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer"
+              title="Click to view all items in Catalog"
+            >
+              <span>View Catalog</span>
+              <ArrowRight className="h-3 w-3" />
+            </button>
           </div>
           <div className="mt-4 h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={stats.categoryDistribution}
+                data={statsData.categoryDistribution}
                 margin={{ top: 10, right: 10, left: -20, bottom: 25 }}
               >
                 <XAxis 
@@ -208,6 +298,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 />
                 <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
                 <Tooltip 
+                  formatter={(val: any, name: any) => [
+                    `${val} units`, 
+                    name === 'stock' || name === 'Stock Left' ? 'Stock Left' : 'Units Consumed'
+                  ]}
                   contentStyle={{ 
                     borderRadius: '12px', 
                     fontSize: '12px',
@@ -226,19 +320,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Donut Chart: Inventory Health Breakdown */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="border-b border-slate-100 pb-3 dark:border-slate-800">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-              Inventory Health Status
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Proportion of SKUs requiring urgent replenishment
-            </p>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                Inventory Health Status
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Proportion of SKUs requiring replenishment
+              </p>
+            </div>
+            <button
+              onClick={onNavigateToAlerts}
+              className="flex items-center gap-1 text-xs font-semibold text-rose-600 hover:underline dark:text-rose-400 cursor-pointer"
+              title="Click to view alerts"
+            >
+              <span>Alerts</span>
+              <ArrowRight className="h-3 w-3" />
+            </button>
           </div>
           <div className="mt-4 h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={stats.statusDistribution}
+                  data={statsData.statusDistribution}
                   dataKey="count"
                   nameKey="status"
                   cx="50%"
@@ -247,7 +351,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   outerRadius={75}
                   paddingAngle={4}
                 >
-                  {stats.statusDistribution.map((entry, index) => (
+                  {statsData.statusDistribution.map((entry, index) => (
                     <Cell 
                       key={`cell-${index}`} 
                       fill={STATUS_COLORS[entry.status] || '#94a3b8'} 
@@ -268,8 +372,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </ResponsiveContainer>
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-            {stats.statusDistribution.map(s => (
-              <div key={s.status} className="flex items-center gap-1.5">
+            {statsData.statusDistribution.map(s => (
+              <div 
+                key={s.status} 
+                onClick={s.status === 'in_stock' ? onNavigateToCatalog : onNavigateToAlerts}
+                className="flex items-center gap-1.5 p-1 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
+                title={`Click to view ${s.status.replace('_', ' ')} items`}
+              >
                 <span 
                   className="h-2.5 w-2.5 rounded-full shrink-0" 
                   style={{ backgroundColor: STATUS_COLORS[s.status] || '#94a3b8' }} 
@@ -286,7 +395,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Consumption Trend & Spend Curve */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Monthly Trend Area Chart */}
+        {/* Monthly Trend Area Chart with Dual Y-Axes and Fixed Tooltip */}
         <div className="col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
             <div>
@@ -297,12 +406,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 Monthly trajectory of robot replacement components and maintenance expenditure
               </p>
             </div>
+            <button
+              onClick={() => (onNavigateToLogs ? onNavigateToLogs() : onNavigateToCatalog())}
+              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer"
+              title="Click to view full usage audit logs"
+            >
+              <span>View Usage Logs</span>
+              <ArrowRight className="h-3 w-3" />
+            </button>
           </div>
           <div className="mt-4 h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={stats.monthlyConsumption}
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                data={statsData.monthlyConsumption}
+                margin={{ top: 10, right: 15, left: -10, bottom: 0 }}
               >
                 <defs>
                   <linearGradient id="colorUnits" x1="0" y1="0" x2="0" y2="1">
@@ -315,23 +432,42 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                <Tooltip 
-                  formatter={(val, name) => [
-                    name === 'cost' ? `₹${Number(val).toLocaleString('en-IN')}` : `${val} units`,
-                    name === 'cost' ? 'Total Cost (₹)' : 'Parts Used'
-                  ]}
-                  contentStyle={{ 
-                    borderRadius: '12px', 
-                    fontSize: '12px',
-                    backgroundColor: '#1e293b',
-                    color: '#fff',
-                    border: 'none'
-                  }} 
+                {/* Left Y-Axis for Spend (₹) */}
+                <YAxis 
+                  yAxisId="cost"
+                  orientation="left"
+                  tick={{ fontSize: 10, fill: '#0ea5e9' }}
+                  tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`}
                 />
-                <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Area type="monotone" dataKey="units" name="Parts Used" stroke="#6366f1" fillOpacity={1} fill="url(#colorUnits)" />
-                <Area type="monotone" dataKey="cost" name="Spend (₹)" stroke="#0ea5e9" fillOpacity={1} fill="url(#colorCost)" />
+                {/* Right Y-Axis for Parts Used (units) */}
+                <YAxis 
+                  yAxisId="units"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: '#6366f1' }}
+                  tickFormatter={(v) => `${v}u`}
+                />
+                <Tooltip content={<CustomConsumptionTooltip />} />
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
+                <Area 
+                  yAxisId="cost"
+                  type="monotone" 
+                  dataKey="cost" 
+                  name="Spend (₹)" 
+                  stroke="#0ea5e9" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorCost)" 
+                />
+                <Area 
+                  yAxisId="units"
+                  type="monotone" 
+                  dataKey="units" 
+                  name="Parts Used" 
+                  stroke="#6366f1" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorUnits)" 
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -348,7 +484,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <button
               onClick={onNavigateToAlerts}
-              className="text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+              className="text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer"
             >
               View All
             </button>
@@ -362,7 +498,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             ) : (
               activeAlerts.slice(0, 4).map((alt) => (
-                <div key={alt.id} className="py-2.5">
+                <div 
+                  key={alt.id} 
+                  onClick={onNavigateToAlerts}
+                  className="py-2.5 cursor-pointer rounded-lg px-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                  title="Click to view in Alerts Center"
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5">
@@ -377,10 +518,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </div>
                   {permissions.canResolveAlerts && (
-                    <div className="mt-2 flex justify-end">
+                    <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => onResolveAlert(alt.id)}
-                        className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
                       >
                         Acknowledge & Resolve
                       </button>
@@ -406,7 +547,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <button
             onClick={onNavigateToReorders}
-            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer"
           >
             <span>Full Reorder Center</span>
             <ArrowRight className="h-3 w-3" />
@@ -434,8 +575,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {reorderUrgentParts.map((part) => (
                 <tr key={part.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                  <td className="py-2.5 px-3">
-                    <span className="font-bold text-slate-900 dark:text-white block">{part.name}</span>
+                  <td 
+                    className="py-2.5 px-3 cursor-pointer group"
+                    onClick={() => (onNavigateToStockDetail ? onNavigateToStockDetail(part.id) : onNavigateToCatalog())}
+                    title="Click to view item stock details"
+                  >
+                    <span className="font-bold text-slate-900 group-hover:text-indigo-600 dark:text-white dark:group-hover:text-indigo-400 block transition-colors">
+                      {part.name}
+                    </span>
                     <span className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400">{part.partNumber}</span>
                   </td>
                   <td className="py-2.5 px-2">
@@ -459,7 +606,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {permissions.canReorder ? (
                       <button
                         onClick={() => onReorderPart(part)}
-                        className="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300"
+                        className="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300 cursor-pointer"
                       >
                         Reorder
                       </button>

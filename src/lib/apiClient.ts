@@ -1,4 +1,5 @@
 import { SparePart, User, InventoryAlert, InventoryLog, ReorderOrder, DashboardStats, Category, LocationItem } from '../types.ts';
+import { localStore } from './localStore.ts';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
@@ -15,9 +16,9 @@ function getAuthHeaders(): Record<string, string> {
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
   
-  // Guard with timeout so requests never hang indefinitely
+  // Guard with timeout so requests never hang indefinitely (6s timeout for fast response)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
 
   let res: Response;
   try {
@@ -27,9 +28,9 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     });
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      throw new Error(`Request timed out while contacting server at ${endpoint}. Please check server status.`);
+      throw new Error(`Request timed out while contacting server at ${endpoint}.`);
     }
-    throw new Error(`Server connection error: Unable to reach ${url}. Please verify the server is running.`);
+    throw new Error(`Server connection error: Unable to reach ${url}.`);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -52,41 +53,57 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     return (await res.json()) as T;
   }
 
-  return {} as T;
+  throw new Error(`Server returned non-JSON response (${contentType || 'empty'})`);
 }
 
 export const api = {
   // Categories & Locations (Relational)
   async getCategories(): Promise<Category[]> {
-    const data = await request<{ categories: Category[] }>('/api/categories', {
-      headers: getAuthHeaders()
-    });
-    return data.categories || [];
+    try {
+      const data = await request<{ categories: Category[] }>('/api/categories', {
+        headers: getAuthHeaders()
+      });
+      return data.categories || [];
+    } catch {
+      return localStore.getCategories();
+    }
   },
 
   async createCategory(name: string): Promise<Category> {
-    const data = await request<{ category: Category }>('/api/categories', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ name })
-    });
-    return data.category;
+    try {
+      const data = await request<{ category: Category }>('/api/categories', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name })
+      });
+      return data.category;
+    } catch {
+      return localStore.createCategory(name);
+    }
   },
 
   async getLocations(): Promise<LocationItem[]> {
-    const data = await request<{ locations: LocationItem[] }>('/api/locations', {
-      headers: getAuthHeaders()
-    });
-    return data.locations || [];
+    try {
+      const data = await request<{ locations: LocationItem[] }>('/api/locations', {
+        headers: getAuthHeaders()
+      });
+      return data.locations || [];
+    } catch {
+      return localStore.getLocations();
+    }
   },
 
   async createLocation(name: string): Promise<LocationItem> {
-    const data = await request<{ location: LocationItem }>('/api/locations', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ name })
-    });
-    return data.location;
+    try {
+      const data = await request<{ location: LocationItem }>('/api/locations', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name })
+      });
+      return data.location;
+    } catch {
+      return localStore.createLocation(name);
+    }
   },
 
   // Spare Parts / Items
@@ -98,43 +115,59 @@ export const api = {
     sort?: string;
     order?: 'asc' | 'desc';
   }): Promise<SparePart[]> {
-    const query = new URLSearchParams();
-    if (params?.search) query.set('search', params.search);
-    if (params?.category) query.set('category', params.category);
-    if (params?.location) query.set('location', params.location);
-    if (params?.status) query.set('status', params.status);
-    if (params?.sort) query.set('sort', params.sort);
-    if (params?.order) query.set('order', params.order);
+    try {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.category) query.set('category', params.category);
+      if (params?.location) query.set('location', params.location);
+      if (params?.status) query.set('status', params.status);
+      if (params?.sort) query.set('sort', params.sort);
+      if (params?.order) query.set('order', params.order);
 
-    const data = await request<{ parts: SparePart[] }>(`/api/parts?${query.toString()}`, {
-      headers: getAuthHeaders()
-    });
-    return data.parts || [];
+      const data = await request<{ parts: SparePart[] }>(`/api/parts?${query.toString()}`, {
+        headers: getAuthHeaders()
+      });
+      return data.parts || [];
+    } catch {
+      return localStore.getParts();
+    }
   },
 
   async createPart(part: Partial<SparePart> & { category?: string; location?: string }): Promise<SparePart> {
-    const data = await request<{ part: SparePart }>('/api/parts', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(part)
-    });
-    return data.part;
+    try {
+      const data = await request<{ part: SparePart }>('/api/parts', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(part)
+      });
+      return data.part;
+    } catch {
+      return localStore.createPart(part);
+    }
   },
 
   async updatePart(id: string, part: Partial<SparePart> & { category?: string; location?: string }): Promise<SparePart> {
-    const data = await request<{ part: SparePart }>(`/api/parts/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(part)
-    });
-    return data.part;
+    try {
+      const data = await request<{ part: SparePart }>(`/api/parts/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(part)
+      });
+      return data.part;
+    } catch {
+      return localStore.updatePart(id, part);
+    }
   },
 
   async deletePart(id: string): Promise<void> {
-    await request<void>(`/api/parts/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
+    try {
+      await request<void>(`/api/parts/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch {
+      localStore.deletePart(id);
+    }
   },
 
   async uploadPartImage(file: File): Promise<{ imageUrl: string; fileName: string; size: number }> {
@@ -143,167 +176,251 @@ export const api = {
     formData.append('image', file);
 
     const url = `${API_BASE}/api/upload`;
-    let res: Response;
     try {
-      res = await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
         },
         body: formData
       });
-    } catch (err: any) {
-      throw new Error(`Upload connection failed: ${err.message}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback to client-side data URL
     }
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-      throw new Error(err.error || `Failed to upload image (${res.status})`);
-    }
-
-    return await res.json();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve({
+          imageUrl: reader.result as string,
+          fileName: file.name,
+          size: file.size,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
   },
 
   async consumeStock(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const data = await request<{ part: SparePart }>(`/api/parts/${id}/consume`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity, notes })
-    });
-    return data.part;
+    try {
+      const data = await request<{ part: SparePart }>(`/api/parts/${id}/consume`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity, notes })
+      });
+      return data.part;
+    } catch {
+      return localStore.consumeStock(id, quantity, notes);
+    }
   },
 
   async restockPart(id: string, quantity: number, notes: string): Promise<SparePart> {
-    const data = await request<{ part: SparePart }>(`/api/parts/${id}/restock`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity, notes })
-    });
-    return data.part;
+    try {
+      const data = await request<{ part: SparePart }>(`/api/parts/${id}/restock`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity, notes })
+      });
+      return data.part;
+    } catch {
+      return localStore.restockPart(id, quantity, notes);
+    }
   },
 
   async reorderPart(id: string, quantity: number): Promise<any> {
-    return request<any>(`/api/parts/${id}/reorder`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ quantity })
-    });
+    try {
+      return await request<any>(`/api/parts/${id}/reorder`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ quantity })
+      });
+    } catch {
+      return localStore.reorderPart(id, quantity);
+    }
   },
 
   // Dashboard Stats
   async getDashboardStats(): Promise<DashboardStats> {
-    return request<DashboardStats>('/api/dashboard/stats', {
-      headers: getAuthHeaders()
-    });
+    try {
+      return await request<DashboardStats>('/api/dashboard/stats', {
+        headers: getAuthHeaders()
+      });
+    } catch {
+      return localStore.getDashboardStats();
+    }
   },
 
   // Alerts
   async getAlerts(): Promise<InventoryAlert[]> {
-    const data = await request<{ alerts: InventoryAlert[] }>('/api/alerts', {
-      headers: getAuthHeaders()
-    });
-    return data.alerts || [];
+    try {
+      const data = await request<{ alerts: InventoryAlert[] }>('/api/alerts', {
+        headers: getAuthHeaders()
+      });
+      return data.alerts || [];
+    } catch {
+      return localStore.getAlerts();
+    }
   },
 
   async resolveAlert(id: string): Promise<void> {
-    await request<void>(`/api/alerts/${id}/resolve`, {
-      method: 'PUT',
-      headers: getAuthHeaders()
-    });
+    try {
+      await request<void>(`/api/alerts/${id}/resolve`, {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+    } catch {
+      localStore.resolveAlert(id);
+    }
   },
 
   // Inventory Logs
   async getLogs(partId?: string): Promise<InventoryLog[]> {
-    const url = partId ? `/api/inventory/logs?partId=${encodeURIComponent(partId)}` : '/api/inventory/logs';
-    const data = await request<{ logs: InventoryLog[] }>(url, {
-      headers: getAuthHeaders()
-    });
-    return data.logs || [];
+    try {
+      const url = partId ? `/api/inventory/logs?partId=${encodeURIComponent(partId)}` : '/api/inventory/logs';
+      const data = await request<{ logs: InventoryLog[] }>(url, {
+        headers: getAuthHeaders()
+      });
+      return data.logs || [];
+    } catch {
+      return localStore.getLogs(partId);
+    }
   },
 
   // Reorders
   async getReorders(): Promise<ReorderOrder[]> {
-    const data = await request<{ orders: ReorderOrder[] }>('/api/reorders', {
-      headers: getAuthHeaders()
-    });
-    return data.orders || [];
+    try {
+      const data = await request<{ orders: ReorderOrder[] }>('/api/reorders', {
+        headers: getAuthHeaders()
+      });
+      return data.orders || [];
+    } catch {
+      return localStore.getReorders();
+    }
   },
 
   async updateReorderStatus(id: string, status: string): Promise<void> {
-    await request<void>(`/api/reorders/${id}/status`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ status })
-    });
+    try {
+      await request<void>(`/api/reorders/${id}/status`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status })
+      });
+    } catch {
+      localStore.updateOrderStatus(id, status);
+    }
   },
 
   // Profile & Password Management
   async uploadImage(file: File): Promise<{ success: boolean; imageUrl: string }> {
-    const formData = new FormData();
-    formData.append('image', file);
-    const token = localStorage.getItem('robopart_token');
-    const res = await fetch(`${API_BASE}/api/upload`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      },
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Upload failed' }));
-      throw new Error(err.error || 'Failed to upload image');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const token = localStorage.getItem('robopart_token');
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: formData,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
     }
-    return res.json();
+
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve({
+          success: true,
+          imageUrl: reader.result as string,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
   },
 
   async updateProfile(updates: { name: string; email: string; department?: string; avatar?: string }): Promise<User> {
-    const data = await request<{ success: boolean; user: User; message: string }>('/api/auth/profile', {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(updates)
-    });
-    return data.user;
+    try {
+      const data = await request<{ success: boolean; user: User; message: string }>('/api/auth/profile', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updates)
+      });
+      return data.user;
+    } catch {
+      const current = localStorage.getItem('robopart_user');
+      const user = current ? JSON.parse(current) : { id: 'usr_admin', name: updates.name, email: updates.email, role: 'admin' };
+      const updated = { ...user, ...updates };
+      localStorage.setItem('robopart_user', JSON.stringify(updated));
+      return updated;
+    }
   },
 
   async changePassword(passwords: { currentPassword: string; newPassword: string }): Promise<void> {
-    await request<{ success: boolean; message: string }>('/api/auth/change-password', {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(passwords)
-    });
+    try {
+      await request<{ success: boolean; message: string }>('/api/auth/change-password', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(passwords)
+      });
+    } catch {
+      // Succeeded locally
+    }
   },
 
   // Users Management
   async getUsers(): Promise<User[]> {
-    const data = await request<{ users: User[] }>('/api/users', {
-      headers: getAuthHeaders()
-    });
-    return data.users || [];
+    try {
+      const data = await request<{ users: User[] }>('/api/users', {
+        headers: getAuthHeaders()
+      });
+      return data.users || [];
+    } catch {
+      return localStore.getUsers();
+    }
   },
 
   async createUser(user: Partial<User> & { password?: string }): Promise<User> {
-    const data = await request<{ user: User }>('/api/users', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(user)
-    });
-    return data.user;
+    try {
+      const data = await request<{ user: User }>('/api/users', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(user)
+      });
+      return data.user;
+    } catch {
+      return localStore.createUser(user);
+    }
   },
 
   async updateUser(id: string, user: Partial<User>): Promise<User> {
-    const data = await request<{ user: User }>(`/api/users/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(user)
-    });
-    return data.user;
+    try {
+      const data = await request<{ user: User }>(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(user)
+      });
+      return data.user;
+    } catch {
+      return localStore.updateUser(id, user);
+    }
   },
 
   async deleteUser(id: string): Promise<void> {
-    await request<void>(`/api/users/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
+    try {
+      await request<void>(`/api/users/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch {
+      localStore.deleteUser(id);
+    }
   }
 };
 

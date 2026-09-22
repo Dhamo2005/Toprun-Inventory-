@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -6,11 +7,23 @@ import { query, run, getDb, getOrCreateCategory, getOrCreateLocation } from './d
 
 const router = express.Router();
 
-// Server-side uploads storage directory
-const uploadsDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Server-side uploads storage directory with serverless fallback
+function getUploadsDir(): string {
+  const standardDir = path.join(process.cwd(), 'uploads');
+  const tmpDir = path.join('/tmp', 'uploads');
+  try {
+    if (!fs.existsSync(standardDir)) {
+      fs.mkdirSync(standardDir, { recursive: true });
+    }
+    return standardDir;
+  } catch {
+    if (!fs.existsSync(tmpDir)) {
+      try { fs.mkdirSync(tmpDir, { recursive: true }); } catch {}
+    }
+    return tmpDir;
+  }
 }
+const uploadsDir = getUploadsDir();
 
 // Configure multer file handler for server storage
 const storage = multer.diskStorage({
